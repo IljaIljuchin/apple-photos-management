@@ -84,6 +84,8 @@ class ExportStats:
     duplicate_files_found: int = 0
     duplicate_files_resolved: int = 0
     files_skipped_duplicates: int = 0
+    duplicate_files_preserved: int = 0
+    duplicate_files_discarded: int = 0
     total_size_bytes: int = 0
     supported_formats: Counter = None
     unsupported_formats: Counter = None
@@ -119,6 +121,7 @@ class PhotoExporter:
         
         # Statistics
         self.stats = ExportStats()
+        self.duplicates_to_preserve = {}
         
         # File tracking for duplicates
         self.file_timestamps: Dict[str, int] = defaultdict(int)
@@ -164,6 +167,7 @@ class PhotoExporter:
         
         # Create file handler for detailed logging
         if not self.is_dry_run:
+            # Use target_dir for now, will be updated when export_dir is created
             log_file = self.target_dir / f"export_log_{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
             file_handler = logging.FileHandler(log_file)
             file_handler.setLevel(logging.DEBUG)
@@ -287,6 +291,41 @@ class PhotoExporter:
         except Exception as e:
             self.logger.warning(f"Error getting file date for {file_path}: {e}")
             return datetime.now(timezone.utc)
+
+    def _check_disk_space(self, required_size_bytes: int) -> Tuple[bool, int, int]:
+        """
+        Check if there's enough disk space for export
+        Returns: (has_enough_space, available_bytes, required_bytes)
+        """
+        try:
+            # Get available space on target directory
+            # In dry run, use target_dir since export_dir doesn't exist yet
+            if self.export_dir and not self.is_dry_run:
+                target_path = self.export_dir
+            else:
+                target_path = self.target_dir
+                
+            statvfs = os.statvfs(target_path)
+            available_bytes = statvfs.f_frsize * statvfs.f_bavail
+            
+            # Add 10% buffer for safety
+            required_with_buffer = int(required_size_bytes * 1.1)
+            
+            has_enough_space = available_bytes >= required_with_buffer
+            
+            return has_enough_space, available_bytes, required_with_buffer
+            
+        except Exception as e:
+            self.logger.warning(f"Could not check disk space: {e}")
+            return True, 0, required_size_bytes  # Assume enough space if check fails
+
+    def _format_bytes(self, bytes_value: int) -> str:
+        """Format bytes in human readable format"""
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if bytes_value < 1024.0:
+                return f"{bytes_value:.1f} {unit}"
+            bytes_value /= 1024.0
+        return f"{bytes_value:.1f} PB"
 
     def _choose_best_date(self, exif_date: Optional[datetime], xmp_date: Optional[datetime], file_date: datetime) -> Tuple[datetime, str]:
         """Choose the best creation date from available sources"""
@@ -488,11 +527,157 @@ class PhotoExporter:
                 self.stats.files_skipped_duplicates += len(paths)
                 self.logger.debug(f"Duplicate '{filename}': skipping all {len(paths)} occurrences")
             return []
+            
+        elif self.duplicate_strategy == 'preserve_duplicates':
+            # Keep first occurrence for main export, preserve others in duplicates folder
+            resolved_files = []
+            for filename, paths in duplicates.items():
+                # Keep first occurrence for main export
+                resolved_files.append(paths[0])
+                self.stats.duplicate_files_resolved += 1
+                
+                # Preserve up to 2 copies total (first + one duplicate)
+                if len(paths) > 1:
+                    self.stats.duplicate_files_preserved += 1
+                    self.logger.debug(f"Duplicate '{filename}': preserving 1 duplicate")
+                
+                # Discard additional copies (3rd, 4th, etc.)
+                if len(paths) > 2:
+                    discarded_count = len(paths) - 2
+                    self.stats.duplicate_files_discarded += discarded_count
+                    self.logger.warning(f"Duplicate '{filename}': discarding {discarded_count} additional copies (keeping only 2 total)")
+            
+            return resolved_files
+            
+        elif self.duplicate_strategy == 'cleanup_duplicates':
+            # Remove duplicates folder and keep only main export
+            self.logger.info("Cleanup mode: removing duplicates folder...")
+            self._cleanup_duplicates_folder()
+            return []
         
         else:
             # Default: keep first
             self.duplicate_strategy = 'keep_first'
             return self._handle_duplicates(duplicates)
+
+    def _process_preserved_duplicates(self):
+        """Process duplicates and copy them to duplicates folder with export date"""
+        if not self.duplicates_to_preserve:
+            return
+            
+        self.logger.info("Processing preserved duplicates...")
+        
+        # Create duplicates directory with export date
+        export_timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        duplicates_dir = self.export_dir / f"duplicates_{export_timestamp}"
+        
+        if not self.is_dry_run:
+            duplicates_dir.mkdir(parents=True, exist_ok=True)
+            self.logger.info(f"Created duplicates directory: {duplicates_dir}")
+        else:
+            self.logger.info(f"Would create duplicates directory: {duplicates_dir}")
+        
+        # Process each duplicate group
+        for filename, paths in self.duplicates_to_preserve.items():
+            if len(paths) <= 1:
+                continue  # No duplicates to preserve
+                
+            # Keep only the second occurrence (first is already in main export)
+            duplicate_path = paths[1] if len(paths) > 1 else None
+            
+            if duplicate_path:
+                # Process the duplicate file
+                metadata = self._process_photo_file(duplicate_path)
+                if metadata and metadata.is_valid:
+                    # Copy to duplicates folder with same naming logic
+                    self._copy_duplicate_photo(metadata, duplicates_dir)
+                    
+                # Log discarded copies (3rd, 4th, etc.)
+                if len(paths) > 2:
+                    discarded_paths = paths[2:]
+                    for discarded_path in discarded_paths:
+                        self.logger.warning(f"Discarded additional duplicate: {discarded_path}")
+                        self.stats.duplicate_files_discarded += 1
+
+    def _copy_duplicate_photo(self, metadata: PhotoMetadata, duplicates_dir: Path) -> bool:
+        """Copy duplicate photo to duplicates directory with same naming logic"""
+        try:
+            if not metadata.is_valid or not metadata.creation_date:
+                self.logger.warning(f"Skipping invalid duplicate: {metadata.original_filename}")
+                return False
+
+            year, month, day = metadata.creation_date.year, metadata.creation_date.month, metadata.creation_date.day
+            target_dir = duplicates_dir / str(year) / f"{month:02d}" / f"{day:02d}"
+            
+            if not self.is_dry_run:
+                target_dir.mkdir(parents=True, exist_ok=True)
+            
+            new_filename = self._generate_filename(metadata.creation_date, metadata.file_extension)
+            target_path = target_dir / new_filename
+
+            # Handle potential filename duplicates
+            counter = 1
+            original_target_path = target_path
+            while target_path.exists():
+                stem = original_target_path.stem
+                ext = original_target_path.suffix
+                target_path = target_dir / f"{stem}-{counter:03d}{ext}"
+                counter += 1
+
+            # Copy main file
+            if not self.is_dry_run:
+                shutil.copy2(metadata.original_path, target_path)
+                self.logger.debug(f"Copied duplicate: {metadata.original_filename} -> {target_path}")
+            else:
+                self.logger.debug(f"Would copy duplicate: {metadata.original_filename} -> {target_path}")
+
+            # Copy AAE file if it exists
+            original_path = Path(metadata.original_path)
+            aae_path = original_path.with_suffix('.aae')
+            if not aae_path.exists():
+                aae_path = original_path.with_suffix('.AAE')
+
+            if aae_path.exists():
+                aae_target_path = target_path.with_suffix('.aae')
+                if not self.is_dry_run:
+                    shutil.copy2(aae_path, aae_target_path)
+                    self.logger.debug(f"Copied duplicate AAE: {aae_path.name} -> {aae_target_path}")
+                else:
+                    self.logger.debug(f"Would copy duplicate AAE: {aae_path.name} -> {aae_target_path}")
+
+            self.stats.duplicate_files_preserved += 1
+            return True
+
+        except Exception as e:
+            error_msg = f"Error copying duplicate {metadata.original_filename}: {e}"
+            self.logger.error(error_msg)
+            self.stats.errors.append(error_msg)
+            return False
+
+    def _cleanup_duplicates_folder(self):
+        """Remove duplicates folder after manual review"""
+        if self.export_dir is None:
+            self.logger.warning("Export directory not set, cannot cleanup duplicates")
+            return
+            
+        # Find duplicates folder
+        duplicates_folders = list(self.export_dir.glob("duplicates_*"))
+        
+        if not duplicates_folders:
+            self.logger.info("No duplicates folder found to cleanup")
+            return
+            
+        for duplicates_folder in duplicates_folders:
+            if duplicates_folder.is_dir():
+                try:
+                    if not self.is_dry_run:
+                        import shutil
+                        shutil.rmtree(duplicates_folder)
+                        self.logger.info(f"Removed duplicates folder: {duplicates_folder}")
+                    else:
+                        self.logger.info(f"Would remove duplicates folder: {duplicates_folder}")
+                except Exception as e:
+                    self.logger.error(f"Failed to remove duplicates folder {duplicates_folder}: {e}")
 
     def _copy_photo(self, metadata: PhotoMetadata) -> bool:
         """Copy photo to organized directory structure"""
@@ -637,6 +822,11 @@ class PhotoExporter:
         # Create export directory
         self._create_export_directory()
         
+        # Handle cleanup_duplicates strategy early
+        if self.duplicate_strategy == 'cleanup_duplicates':
+            self._cleanup_duplicates_folder()
+            return
+        
         # Find all files (supported and unsupported) - recursively scan subdirectories
         all_files = list(self.source_dir.rglob("*"))
         photo_files = []
@@ -678,6 +868,16 @@ class PhotoExporter:
                 for paths in duplicates.values():
                     all_duplicate_files.extend(paths)
                 photo_files = [f for f in photo_files if f not in all_duplicate_files]
+            elif self.duplicate_strategy == 'preserve_duplicates':
+                # Remove duplicate files from processing list and add back resolved files
+                all_duplicate_files = []
+                for paths in duplicates.values():
+                    all_duplicate_files.extend(paths)
+                photo_files = [f for f in photo_files if f not in all_duplicate_files]
+                photo_files.extend(duplicate_files_to_process)
+                
+                # Store duplicates for later processing
+                self.duplicates_to_preserve = duplicates
             else:
                 # Remove duplicate files from processing list and add back resolved files
                 all_duplicate_files = []
@@ -688,6 +888,27 @@ class PhotoExporter:
             
             self.logger.info(f"After duplicate handling: {len(photo_files)} files to process")
         
+        # Calculate total size for disk space check (only in dry run)
+        if self.is_dry_run:
+            total_size = sum(photo_path.stat().st_size for photo_path in photo_files)
+            self.logger.info(f"Calculating total size for disk space check...")
+            
+            # Check disk space using target directory (not export directory which doesn't exist in dry run)
+            has_space, available, required = self._check_disk_space(total_size)
+            
+            if has_space:
+                self.logger.info(f"✅ Disk space check passed:")
+                self.logger.info(f"   Required: {self._format_bytes(required)} (including 10% buffer)")
+                self.logger.info(f"   Available: {self._format_bytes(available)}")
+                self.logger.info(f"   Free space remaining: {self._format_bytes(available - required)}")
+            else:
+                self.logger.error(f"❌ Insufficient disk space:")
+                self.logger.error(f"   Required: {self._format_bytes(required)} (including 10% buffer)")
+                self.logger.error(f"   Available: {self._format_bytes(available)}")
+                self.logger.error(f"   Shortage: {self._format_bytes(required - available)}")
+                self.logger.error("   Please free up disk space before running the export.")
+                return
+
         # Process files with progress bar
         with tqdm(photo_files, desc="Processing photos", unit="file") as pbar:
             for photo_path in pbar:
@@ -699,6 +920,12 @@ class PhotoExporter:
                 if metadata and metadata.is_valid:
                     # Copy photo
                     self._copy_photo(metadata)
+        
+        # Process preserved duplicates if using preserve_duplicates strategy
+        if self.duplicate_strategy == 'preserve_duplicates' and self.duplicates_to_preserve:
+            self._process_preserved_duplicates()
+        elif self.duplicate_strategy == 'cleanup_duplicates':
+            self._cleanup_duplicates_folder()
         
         # Save metadata
         self._save_export_metadata()
@@ -721,6 +948,8 @@ class PhotoExporter:
         self.logger.info(f"Duplicate Files Found: {self.stats.duplicate_files_found}")
         self.logger.info(f"Duplicate Files Resolved: {self.stats.duplicate_files_resolved}")
         self.logger.info(f"Files Skipped (Duplicates): {self.stats.files_skipped_duplicates}")
+        self.logger.info(f"Duplicate Files Preserved: {self.stats.duplicate_files_preserved}")
+        self.logger.info(f"Duplicate Files Discarded: {self.stats.duplicate_files_discarded}")
         self.logger.info(f"Total Size: {self.stats.total_size_bytes / (1024*1024*1024):.2f} GB")
         
         if self.stats.supported_formats:
@@ -767,8 +996,8 @@ Examples:
     parser.add_argument('target_dir', help='Target directory for organized photos')
     parser.add_argument('is_dry_run', help='"true" for dry-run, "false" for actual execution')
     parser.add_argument('duplicate_strategy', nargs='?', default='keep_first', 
-                       choices=['keep_first', 'skip_duplicates'],
-                       help='Strategy for handling duplicates: keep_first (default) or skip_duplicates')
+                       choices=['keep_first', 'skip_duplicates', 'preserve_duplicates', 'cleanup_duplicates'],
+                       help='Strategy for handling duplicates: keep_first (default), skip_duplicates, preserve_duplicates, or cleanup_duplicates')
     
     args = parser.parse_args()
     
