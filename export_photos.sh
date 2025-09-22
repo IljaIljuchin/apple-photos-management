@@ -95,12 +95,13 @@ show_usage() {
     echo "Arguments:"
     echo "  source_dir  Directory with exported photos and XMP files (optional, defaults to current dir)"
     echo "  target_dir  Directory where organized photos will be saved (optional, defaults to current dir)"
-    echo "  run_mode    'run' to execute, anything else or empty for dry-run test"
+    echo "  run_mode    'run' to execute, 'delete' to remove duplicates, anything else or empty for dry-run test"
     echo ""
     echo "Examples:"
     echo "  $0                                    # Dry-run in current directory"
     echo "  $0 /path/to/photos /path/to/output   # Dry-run with specified directories"
-    echo "  $0 /path/to/photos /path/to/output run  # Execute with specified directories"
+    echo "  $0 /path/to/photos /path/to/output run    # Execute with specified directories"
+    echo "  $0 /path/to/photos /path/to/output delete # Remove duplicates from source directory"
     echo ""
     echo "The tool will:"
     echo "  - Read photos and XMP files from source directory"
@@ -153,11 +154,17 @@ main() {
         exit 1
     fi
     
-    # Determine if this is a dry-run or actual run
+    # Determine if this is a dry-run, actual run, or delete mode
     local is_dry_run="true"
+    local duplicate_strategy="keep_first"
+    
     if [[ "$run_mode" == "run" ]]; then
         is_dry_run="false"
         print_warning "EXECUTING ACTUAL EXPORT - This will create and copy files!"
+    elif [[ "$run_mode" == "delete" ]]; then
+        is_dry_run="false"
+        duplicate_strategy="!delete!"
+        print_warning "DELETE DUPLICATES MODE - This will permanently delete duplicate files from source!"
     else
         print_info "DRY-RUN MODE - No files will be created or copied"
     fi
@@ -166,14 +173,14 @@ main() {
     print_info "Configuration:"
     print_info "  Source directory: $source_dir"
     print_info "  Target directory: $target_dir"
-    print_info "  Mode: $([ "$is_dry_run" == "true" ] && echo "DRY-RUN" || echo "EXECUTE")"
+    print_info "  Mode: $([ "$is_dry_run" == "true" ] && echo "DRY-RUN" || ([ "$run_mode" == "delete" ] && echo "DELETE DUPLICATES" || echo "EXECUTE"))"
     print_info "  Python script: $PYTHON_SCRIPT"
     
     # Run Python script
     print_info "Starting photo export process..."
     echo ""
     
-    if python3 "$PYTHON_SCRIPT" "$source_dir" "$target_dir" "$is_dry_run"; then
+    if python3 "$PYTHON_SCRIPT" "$source_dir" "$target_dir" "$is_dry_run" "$duplicate_strategy"; then
         print_success "Photo export process completed successfully!"
     else
         print_error "Photo export process failed!"
