@@ -554,6 +554,11 @@ class PhotoExporter:
             self.logger.info("Cleanup mode: removing duplicates folder...")
             self._cleanup_duplicates_folder()
             return []
+            
+        elif self.duplicate_strategy == '!delete!':
+            # Delete duplicate files from source directory
+            self.logger.warning("DELETE mode: will delete duplicate files from source directory!")
+            return self._delete_duplicates_from_source(duplicates)
         
         else:
             # Default: keep first
@@ -678,6 +683,135 @@ class PhotoExporter:
                         self.logger.info(f"Would remove duplicates folder: {duplicates_folder}")
                 except Exception as e:
                     self.logger.error(f"Failed to remove duplicates folder {duplicates_folder}: {e}")
+
+    def _delete_duplicates_from_source(self, duplicates: Dict[str, List[Path]]) -> List[Path]:
+        """Delete duplicate files from source directory, keeping only the first occurrence"""
+        if not duplicates:
+            self.logger.info("No duplicates found to delete")
+            return []
+            
+        self.logger.warning("=" * 60)
+        self.logger.warning("DELETE DUPLICATES MODE - DANGEROUS OPERATION!")
+        self.logger.warning("=" * 60)
+        self.logger.warning("This will permanently delete duplicate files from the source directory.")
+        self.logger.warning("Only the first occurrence of each duplicate will be kept.")
+        self.logger.warning("=" * 60)
+        
+        if self.is_dry_run:
+            self.logger.info("DRY RUN: Would delete the following duplicate files:")
+        else:
+            self.logger.warning("EXECUTING: Deleting duplicate files from source directory...")
+        
+        files_to_keep = []
+        files_to_delete = []
+        
+        for filename, paths in duplicates.items():
+            if len(paths) <= 1:
+                continue  # No duplicates to delete
+                
+            # Keep the first occurrence
+            files_to_keep.append(paths[0])
+            
+            # Delete all other occurrences
+            for i, path in enumerate(paths[1:], 1):
+                files_to_delete.append(path)
+                
+                if self.is_dry_run:
+                    self.logger.info(f"  Would delete: {path}")
+                else:
+                    try:
+                        # Delete the file
+                        path.unlink()
+                        self.logger.info(f"  Deleted: {path}")
+                        
+                        # Also delete associated XMP and AAE files
+                        xmp_path = path.with_suffix(path.suffix + '.xmp')
+                        if not xmp_path.exists():
+                            xmp_path = path.with_suffix(path.suffix + '.XMP')
+                        if not xmp_path.exists():
+                            xmp_path = path.with_suffix('.xmp')
+                        if not xmp_path.exists():
+                            xmp_path = path.with_suffix('.XMP')
+                            
+                        if xmp_path.exists():
+                            xmp_path.unlink()
+                            self.logger.info(f"  Deleted XMP: {xmp_path}")
+                            
+                        # Delete AAE file
+                        aae_path = path.with_suffix('.aae')
+                        if not aae_path.exists():
+                            aae_path = path.with_suffix('.AAE')
+                        if not aae_path.exists():
+                            # Try Apple Photos pattern
+                            photo_name = path.stem
+                            if photo_name.startswith('IMG_'):
+                                number_part = photo_name[4:]
+                                aae_name = f"IMG_O{number_part}.aae"
+                                aae_path = path.parent / aae_name
+                                if not aae_path.exists():
+                                    aae_name = f"IMG_O{number_part}.AAE"
+                                    aae_path = path.parent / aae_name
+                                    
+                        if aae_path.exists():
+                            aae_path.unlink()
+                            self.logger.info(f"  Deleted AAE: {aae_path}")
+                            
+                        self.stats.duplicate_files_discarded += 1
+                        
+                    except Exception as e:
+                        self.logger.error(f"  Failed to delete {path}: {e}")
+                        self.stats.errors.append(f"Failed to delete {path}: {e}")
+        
+        if self.is_dry_run:
+            self.logger.info(f"DRY RUN: Would delete {len(files_to_delete)} duplicate files")
+            self.logger.info(f"DRY RUN: Would keep {len(files_to_keep)} original files")
+        else:
+            self.logger.warning(f"DELETED: {len(files_to_delete)} duplicate files")
+            self.logger.warning(f"KEPT: {len(files_to_keep)} original files")
+            
+        return files_to_keep
+
+    def _handle_delete_duplicates(self):
+        """Handle !delete! strategy - delete duplicates from source directory"""
+        self.logger.warning("=" * 60)
+        self.logger.warning("DELETE DUPLICATES MODE - DANGEROUS OPERATION!")
+        self.logger.warning("=" * 60)
+        self.logger.warning("This will permanently delete duplicate files from the source directory.")
+        self.logger.warning("Only the first occurrence of each duplicate will be kept.")
+        self.logger.warning("=" * 60)
+        
+        # Find all photo files
+        all_files = list(self.source_dir.rglob("*"))
+        photo_files = []
+        
+        for file_path in all_files:
+            if file_path.is_file() and not file_path.name.startswith('.'):
+                if self._is_supported_format(file_path):
+                    if file_path.suffix.lower() in self.SUPPORTED_IMAGE_FORMATS | self.SUPPORTED_VIDEO_FORMATS:
+                        photo_files.append(file_path)
+        
+        if not photo_files:
+            self.logger.warning("No supported photo files found in source directory")
+            return
+            
+        # Detect duplicates
+        duplicates = self._detect_duplicates(photo_files)
+        if not duplicates:
+            self.logger.info("No duplicates found in source directory")
+            return
+            
+        # Delete duplicates
+        files_to_keep = self._delete_duplicates_from_source(duplicates)
+        
+        # Update statistics
+        self.stats.duplicate_files_found = len(duplicates)
+        self.stats.duplicate_files_resolved = len(files_to_keep)
+        
+        # Print summary
+        self._print_summary()
+        
+        # Save metadata
+        self._save_export_metadata()
 
     def _copy_photo(self, metadata: PhotoMetadata) -> bool:
         """Copy photo to organized directory structure"""
@@ -825,6 +959,11 @@ class PhotoExporter:
         # Handle cleanup_duplicates strategy early
         if self.duplicate_strategy == 'cleanup_duplicates':
             self._cleanup_duplicates_folder()
+            return
+            
+        # Handle !delete! strategy early
+        if self.duplicate_strategy == '!delete!':
+            self._handle_delete_duplicates()
             return
         
         # Find all files (supported and unsupported) - recursively scan subdirectories
@@ -996,8 +1135,8 @@ Examples:
     parser.add_argument('target_dir', help='Target directory for organized photos')
     parser.add_argument('is_dry_run', help='"true" for dry-run, "false" for actual execution')
     parser.add_argument('duplicate_strategy', nargs='?', default='keep_first', 
-                       choices=['keep_first', 'skip_duplicates', 'preserve_duplicates', 'cleanup_duplicates'],
-                       help='Strategy for handling duplicates: keep_first (default), skip_duplicates, preserve_duplicates, or cleanup_duplicates')
+                       choices=['keep_first', 'skip_duplicates', 'preserve_duplicates', 'cleanup_duplicates', '!delete!'],
+                       help='Strategy for handling duplicates: keep_first (default), skip_duplicates, preserve_duplicates, cleanup_duplicates, or !delete!')
     
     args = parser.parse_args()
     
