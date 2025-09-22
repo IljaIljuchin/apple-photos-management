@@ -1,0 +1,24 @@
+# Apple Photos Export Tool - Python Dependencies
+# Standard libraries for image processing and metadata extraction
+
+# Core image processing
+Pillow>=10.0.0          # EXIF data extraction and image processing
+lxml>=4.9.0             # XML parsing for XMP files
+python-dateutil>=2.8.0  # Advanced date parsing and manipulation
+
+# Logging and configuration
+colorlog>=6.7.0         # Colored logging output
+tqdm>=4.65.0            # Progress bars for long operations
+
+# Testing framework
+pytest>=7.4.0           # Testing framework
+pytest-cov>=4.1.0       # Coverage reporting
+pytest-mock>=3.11.0     # Mocking utilities
+
+# Development tools
+black>=23.0.0           # Code formatting
+flake8>=6.0.0           # Linting
+mypy>=1.5.0             # Type checking
+
+# File system utilities
+pathlib2>=2.3.7         # Enhanced path operations (Python 3.4+ compatibility)
