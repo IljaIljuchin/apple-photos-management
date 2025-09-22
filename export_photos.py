@@ -81,6 +81,9 @@ class ExportStats:
     successful_exports: int = 0
     failed_exports: int = 0
     duplicates_handled: int = 0
+    duplicate_files_found: int = 0
+    duplicate_files_resolved: int = 0
+    files_skipped_duplicates: int = 0
     total_size_bytes: int = 0
     supported_formats: Counter = None
     unsupported_formats: Counter = None
@@ -104,10 +107,12 @@ class PhotoExporter:
     SUPPORTED_METADATA_FORMATS = {'.aae'}  # Apple Adjustment Export files
     SUPPORTED_FORMATS = SUPPORTED_IMAGE_FORMATS | SUPPORTED_VIDEO_FORMATS | SUPPORTED_METADATA_FORMATS
     
-    def __init__(self, source_dir: str, target_dir: str, is_dry_run: bool = True):
+    def __init__(self, source_dir: str, target_dir: str, is_dry_run: bool = True, 
+                 duplicate_strategy: str = 'keep_first'):
         self.source_dir = Path(source_dir)
         self.target_dir = Path(target_dir)
         self.is_dry_run = is_dry_run
+        self.duplicate_strategy = duplicate_strategy
         
         # Setup logging
         self._setup_logging()
@@ -441,6 +446,53 @@ class PhotoExporter:
                 is_valid=False,
                 error_message=str(e)
             )
+    
+    def _detect_duplicates(self, photo_files: List[Path]) -> Dict[str, List[Path]]:
+        """Detect duplicate files based on filename"""
+        seen_files = {}
+        duplicates = {}
+        
+        for photo_path in photo_files:
+            filename = photo_path.name
+            if filename in seen_files:
+                if filename not in duplicates:
+                    duplicates[filename] = [seen_files[filename]]
+                duplicates[filename].append(photo_path)
+            else:
+                seen_files[filename] = photo_path
+        
+        return duplicates
+    
+    def _handle_duplicates(self, duplicates: Dict[str, List[Path]]) -> List[Path]:
+        """Handle duplicates based on strategy"""
+        if not duplicates:
+            return []
+        
+        self.stats.duplicate_files_found = len(duplicates)
+        self.logger.info(f"Found {len(duplicates)} duplicate files")
+        
+        if self.duplicate_strategy == 'keep_first':
+            # Keep only the first occurrence of each duplicate
+            resolved_files = []
+            for filename, paths in duplicates.items():
+                resolved_files.append(paths[0])
+                self.stats.duplicate_files_resolved += len(paths) - 1
+                self.logger.debug(f"Duplicate '{filename}': keeping first occurrence, skipping {len(paths) - 1} duplicates")
+            return resolved_files
+            
+        elif self.duplicate_strategy == 'skip_duplicates':
+            # Skip all files that have duplicates
+            skipped_files = []
+            for filename, paths in duplicates.items():
+                skipped_files.extend(paths)
+                self.stats.files_skipped_duplicates += len(paths)
+                self.logger.debug(f"Duplicate '{filename}': skipping all {len(paths)} occurrences")
+            return []
+        
+        else:
+            # Default: keep first
+            self.duplicate_strategy = 'keep_first'
+            return self._handle_duplicates(duplicates)
 
     def _copy_photo(self, metadata: PhotoMetadata) -> bool:
         """Copy photo to organized directory structure"""
@@ -555,6 +607,9 @@ class PhotoExporter:
             f.write(f"Successful Exports: {self.stats.successful_exports}\n")
             f.write(f"Failed Exports: {self.stats.failed_exports}\n")
             f.write(f"Duplicates Handled: {self.stats.duplicates_handled}\n")
+            f.write(f"Duplicate Files Found: {self.stats.duplicate_files_found}\n")
+            f.write(f"Duplicate Files Resolved: {self.stats.duplicate_files_resolved}\n")
+            f.write(f"Files Skipped (Duplicates): {self.stats.files_skipped_duplicates}\n")
             f.write(f"Total Size: {self.stats.total_size_bytes / (1024*1024*1024):.2f} GB\n\n")
             
             f.write("Supported Formats:\n")
@@ -582,8 +637,8 @@ class PhotoExporter:
         # Create export directory
         self._create_export_directory()
         
-        # Find all files (supported and unsupported)
-        all_files = list(self.source_dir.glob("*"))
+        # Find all files (supported and unsupported) - recursively scan subdirectories
+        all_files = list(self.source_dir.rglob("*"))
         photo_files = []
         
         for file_path in all_files:
@@ -606,10 +661,32 @@ class PhotoExporter:
                         self.logger.warning(f"Unsupported format: {file_path}")
         
         self.logger.info(f"Found {len(photo_files)} photo files to process")
-        
+
         if not photo_files:
             self.logger.warning("No supported photo files found in source directory")
             return
+        
+        # Detect and handle duplicates
+        duplicates = self._detect_duplicates(photo_files)
+        if duplicates:
+            self.logger.info(f"Duplicate strategy: {self.duplicate_strategy}")
+            duplicate_files_to_process = self._handle_duplicates(duplicates)
+            
+            if self.duplicate_strategy == 'skip_duplicates':
+                # Remove all duplicate files from processing
+                all_duplicate_files = []
+                for paths in duplicates.values():
+                    all_duplicate_files.extend(paths)
+                photo_files = [f for f in photo_files if f not in all_duplicate_files]
+            else:
+                # Remove duplicate files from processing list and add back resolved files
+                all_duplicate_files = []
+                for paths in duplicates.values():
+                    all_duplicate_files.extend(paths)
+                photo_files = [f for f in photo_files if f not in all_duplicate_files]
+                photo_files.extend(duplicate_files_to_process)
+            
+            self.logger.info(f"After duplicate handling: {len(photo_files)} files to process")
         
         # Process files with progress bar
         with tqdm(photo_files, desc="Processing photos", unit="file") as pbar:
@@ -641,6 +718,9 @@ class PhotoExporter:
         self.logger.info(f"Successful Exports: {self.stats.successful_exports}")
         self.logger.info(f"Failed Exports: {self.stats.failed_exports}")
         self.logger.info(f"Duplicates Handled: {self.stats.duplicates_handled}")
+        self.logger.info(f"Duplicate Files Found: {self.stats.duplicate_files_found}")
+        self.logger.info(f"Duplicate Files Resolved: {self.stats.duplicate_files_resolved}")
+        self.logger.info(f"Files Skipped (Duplicates): {self.stats.files_skipped_duplicates}")
         self.logger.info(f"Total Size: {self.stats.total_size_bytes / (1024*1024*1024):.2f} GB")
         
         if self.stats.supported_formats:
@@ -686,6 +766,9 @@ Examples:
     parser.add_argument('source_dir', help='Source directory with photos and XMP files')
     parser.add_argument('target_dir', help='Target directory for organized photos')
     parser.add_argument('is_dry_run', help='"true" for dry-run, "false" for actual execution')
+    parser.add_argument('duplicate_strategy', nargs='?', default='keep_first', 
+                       choices=['keep_first', 'skip_duplicates'],
+                       help='Strategy for handling duplicates: keep_first (default) or skip_duplicates')
     
     args = parser.parse_args()
     
@@ -694,7 +777,7 @@ Examples:
     
     try:
         # Create exporter and run
-        exporter = PhotoExporter(args.source_dir, args.target_dir, is_dry_run)
+        exporter = PhotoExporter(args.source_dir, args.target_dir, is_dry_run, args.duplicate_strategy)
         exporter.run_export()
         
     except KeyboardInterrupt:
