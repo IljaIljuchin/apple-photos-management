@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Apple Photos Export Tool - Shell Wrapper
-# Usage: ./export_photos.sh [source_dir] [target_dir] [run_mode]
-#   source_dir: Directory with exported photos and XMP files (optional, defaults to current dir)
-#   target_dir: Directory where organized photos will be saved (optional, defaults to current dir)
-#   run_mode: "run" to execute, anything else or empty for dry-run test
+# Usage: ./export_photos.sh [mode] <input_directory>
+#   mode: run, delete, help, or dry (optional, defaults to help)
+#   input_directory: Directory with exported photos and XMP files (required)
+#   output_directory: Always input_directory + "_export" (automatic)
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_SCRIPT="$SCRIPT_DIR/export_photos.py"
+PYTHON_SCRIPT="$SCRIPT_DIR/src/core/export_photos.py"
 
 # Function to print colored output
 print_info() {
@@ -71,7 +71,7 @@ check_dependencies() {
     
     # Check if required packages are installed
     local missing_packages=()
-    local packages=("PIL" "lxml" "dateutil" "colorlog" "tqdm")
+    local packages=("PIL" "lxml" "dateutil" "loguru" "tqdm")
     
     for package in "${packages[@]}"; do
         if ! python3 -c "import $package" 2>/dev/null; then
@@ -90,32 +90,42 @@ check_dependencies() {
 show_usage() {
     echo "Apple Photos Export Tool"
     echo ""
-    echo "Usage: $0 [source_dir] [target_dir] [run_mode]"
+    echo "Usage: $0 [mode] <input_directory>"
     echo ""
     echo "Arguments:"
-    echo "  source_dir  Directory with exported photos and XMP files (optional, defaults to current dir)"
-    echo "  target_dir  Directory where organized photos will be saved (optional, defaults to current dir)"
-    echo "  run_mode    'run' to execute, 'delete' to remove duplicates, anything else or empty for dry-run test"
+    echo "  mode            run, delete, help, or dry (optional, defaults to help)"
+    echo "  input_directory Directory with exported photos and XMP files (required)"
+    echo ""
+    echo "Output:"
+    echo "  output_directory Always input_directory + '_export' (automatic)"
+    echo ""
+    echo "Modes:"
+    echo "  help            Show this help message"
+    echo "  dry             Dry-run test (no files created or modified)"
+    echo "  run             Execute actual export (creates organized photos)"
+    echo "  delete          Remove duplicates from output directory only"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Dry-run in current directory"
-    echo "  $0 /path/to/photos /path/to/output   # Dry-run with specified directories"
-    echo "  $0 /path/to/photos /path/to/output run    # Execute with specified directories"
-    echo "  $0 /path/to/photos /path/to/output delete # Remove duplicates from source directory"
+    echo "  $0                                    # Show help"
+    echo "  $0 help                               # Show help"
+    echo "  $0 dry /path/to/photos                # Dry-run test"
+    echo "  $0 run /path/to/photos                # Execute export to /path/to/photos_export"
+    echo "  $0 delete /path/to/photos             # Remove duplicates from /path/to/photos_export"
     echo ""
     echo "The tool will:"
-    echo "  - Read photos and XMP files from source directory"
+    echo "  - Read photos and XMP files from input directory (READ-ONLY)"
     echo "  - Extract creation dates from EXIF and XMP metadata"
     echo "  - Choose earlier date between EXIF and XMP"
-    echo "  - Organize photos into YEAR/MM/DD structure"
+        echo "  - Organize photos into YEAR structure in output directory"
     echo "  - Rename files to YYYYMMDD-HHMMSS-SSS.ext format"
     echo "  - Handle duplicates with sequential numbering"
+    echo "  - NEVER modify the input directory"
 }
 
 # Main function
 main() {
-    # Check if help is requested
-    if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    # Check if help is requested or no arguments provided
+    if [[ $# -eq 0 || "${1:-}" == "-h" || "${1:-}" == "--help" || "${1:-}" == "help" ]]; then
         show_usage
         exit 0
     fi
@@ -127,30 +137,53 @@ main() {
     check_dependencies
     
     # Parse arguments
-    local source_dir="${1:-$(pwd)}"
-    local target_dir="${2:-$(pwd)}"
-    local run_mode="${3:-test}"
+    local mode="${1:-help}"
+    local input_dir="${2:-}"
     
-    # Validate source directory
-    check_directory "$source_dir" "Source directory"
+    # Validate mode
+    if [[ "$mode" != "run" && "$mode" != "delete" && "$mode" != "dry" && "$mode" != "help" ]]; then
+        print_error "Invalid mode: $mode"
+        print_error "Valid modes are: run, delete, dry, help"
+        show_usage
+        exit 1
+    fi
     
-    # Create target directory if it doesn't exist
-    if [[ ! -d "$target_dir" ]]; then
-        print_info "Target directory does not exist, creating: $target_dir"
-        mkdir -p "$target_dir"
+    # If mode is help, show usage and exit
+    if [[ "$mode" == "help" ]]; then
+        show_usage
+        exit 0
+    fi
+    
+    # Check if input directory is provided
+    if [[ -z "$input_dir" ]]; then
+        print_error "Input directory is required"
+        show_usage
+        exit 1
+    fi
+    
+    # Validate input directory
+    check_directory "$input_dir" "Input directory"
+    
+    # Create output directory (input_dir + "_export")
+    local output_dir="${input_dir}_export"
+    
+    # Create output directory if it doesn't exist
+    if [[ ! -d "$output_dir" ]]; then
+        print_info "Output directory does not exist, creating: $output_dir"
+        mkdir -p "$output_dir"
         if [[ $? -eq 0 ]]; then
-            print_success "Target directory created successfully"
+            print_success "Output directory created successfully"
         else
-            print_error "Failed to create target directory: $target_dir"
+            print_error "Failed to create output directory: $output_dir"
             exit 1
         fi
     else
-        print_info "Using existing target directory: $target_dir"
+        print_info "Using existing output directory: $output_dir"
     fi
     
-    # Check if target directory is writable
-    if [[ ! -w "$target_dir" ]]; then
-        print_error "Target directory is not writable: $target_dir"
+    # Check if output directory is writable
+    if [[ ! -w "$output_dir" ]]; then
+        print_error "Output directory is not writable: $output_dir"
         exit 1
     fi
     
@@ -158,32 +191,40 @@ main() {
     local is_dry_run="true"
     local duplicate_strategy="keep_first"
     
-    if [[ "$run_mode" == "run" ]]; then
+    if [[ "$mode" == "run" ]]; then
         is_dry_run="false"
         print_warning "EXECUTING ACTUAL EXPORT - This will create and copy files!"
-    elif [[ "$run_mode" == "delete" ]]; then
+    elif [[ "$mode" == "delete" ]]; then
         is_dry_run="false"
         duplicate_strategy="!delete!"
-        print_warning "DELETE DUPLICATES MODE - This will permanently delete duplicate files from source!"
+        print_warning "DELETE DUPLICATES MODE - This will permanently delete duplicate files from OUTPUT directory!"
     else
         print_info "DRY-RUN MODE - No files will be created or copied"
     fi
     
     # Show configuration
+    # Determine mode display
+    if [[ "$is_dry_run" == "true" ]]; then
+        mode_display="DRY-RUN"
+    elif [[ "$mode" == "delete" ]]; then
+        mode_display="DELETE DUPLICATES"
+    else
+        mode_display="EXECUTE"
+    fi
+    
     print_info "Configuration:"
-    print_info "  Source directory: $source_dir"
-    print_info "  Target directory: $target_dir"
-    print_info "  Mode: $([ "$is_dry_run" == "true" ] && echo "DRY-RUN" || ([ "$run_mode" == "delete" ] && echo "DELETE DUPLICATES" || echo "EXECUTE"))"
-    print_info "  Python script: $PYTHON_SCRIPT"
+    print_info "  📁 Input: $input_dir (READ-ONLY)"
+    print_info "  📁 Output: $output_dir"
+    print_info "  ⚙️  Mode: $mode_display"
     
     # Run Python script
-    print_info "Starting photo export process..."
+    print_info "🚀 Starting photo export process..."
     echo ""
     
-    if python3 "$PYTHON_SCRIPT" "$source_dir" "$target_dir" "$is_dry_run" "$duplicate_strategy"; then
-        print_success "Photo export process completed successfully!"
+    if python3 "$PYTHON_SCRIPT" "$input_dir" "$output_dir" "$is_dry_run" "$duplicate_strategy" --max-workers 8; then
+        print_success "✅ Photo export process completed successfully!"
     else
-        print_error "Photo export process failed!"
+        print_error "❌ Photo export process failed!"
         exit 1
     fi
 }

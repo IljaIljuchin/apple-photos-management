@@ -3,12 +3,14 @@
 
 # Core image processing
 Pillow>=10.0.0          # EXIF data extraction and image processing
+pillow-heif>=0.13.0     # HEIC/HEIF format support for Pillow
 lxml>=4.9.0             # XML parsing for XMP files
 python-dateutil>=2.8.0  # Advanced date parsing and manipulation
 
 # Logging and configuration
-colorlog>=6.7.0         # Colored logging output
-tqdm>=4.65.0            # Progress bars for long operations
+loguru>=0.7.0           # Modern logging with colors and structured output
+tqdm>=4.65.0
+psutil>=5.9.0            # System and process monitoring
 
 # Testing framework
 pytest>=7.4.0           # Testing framework
