@@ -21,6 +21,20 @@ Tento backlog obsahuje seznam úkolů, vylepšení a optimalizací pro Apple Pho
 
 ---
 
+### ✅ Return Value Bug in run_export()
+**Priority**: CRITICAL  
+**Status**: ✅ FIXED  
+**Description**: ~~`run_export()` method was not returning boolean values, causing main.py to always report "failed" even on successful exports.~~
+
+**✅ FIXED**: Added proper return statements to `run_export()` method.
+
+**Files modified**:
+- `src/core/export_photos.py` - Fixed return statements in `run_export()` method
+
+**Impact**: Export process now correctly reports success/failure status.
+
+---
+
 ### ✅ Exception Handling Anti-Patterns
 **Priority**: CRITICAL  
 **Status**: ✅ FIXED  

@@ -32,6 +32,8 @@ Tento dokument definuje kompletní funkční a nefunkční požadavky pro Apple 
 - [x] **Graceful Handling**: Elegantní zpracování nepodporovaných formátů s varováními
 - [x] **XMP Detection**: Automatická detekce a zpracování XMP souborů
 - [x] **XMP Copying**: Kopírování XMP souborů spolu s odpovídajícími fotografiemi
+- [x] **Professional CLI**: Hlavní vstupní bod přes `main.py` s argparse
+- [x] **Configuration Management**: Centralizovaná konfigurace přes .env soubory
 
 ### 2.2 Metadata Extraction (REQ-002)
 **Description**: Systém musí extrahovat metadata z různých zdrojů a vybrat nejlepší datum.
@@ -117,6 +119,8 @@ Tento dokument definuje kompletní funkční a nefunkční požadavky pro Apple 
   - [x] `filename.xmp` - Bez extension
   - [x] `filename.XMP` - Uppercase bez extension
 - [x] **Extension Normalization**: Všechny přípony normalizovány na lowercase
+- [x] **Unsupported Format Handling**: Elegantní zpracování nepodporovaných formátů s varováními
+- [x] **Format Statistics**: Sledování statistik nepodporovaných formátů
 
 ### 3.2 File Naming Behavior (REQ-016)
 **Description**: Systém musí implementovat konzistentní pojmenování a zpracování souborů.
@@ -126,6 +130,9 @@ Tento dokument definuje kompletní funkční a nefunkční požadavky pro Apple 
 - [x] **Filename Generation**: Standardizovaný formát YYYYMMDD-HHMMSS-SSS.ext
 - [x] **Case Consistency**: Zajištění konzistentního pojmenování napříč operačními systémy
 - [x] **Duplicate Handling**: Automatické číslování pro konflikty názvů (např. -001, -002)
+- [x] **Professional CLI**: Hlavní vstupní bod přes `main.py` s argparse
+- [x] **Configuration Management**: Centralizovaná konfigurace přes .env soubory
+- [x] **Error Handling**: Robustní zpracování chyb s návratovými kódy
 
 ### 3.3 Performance Optimization (REQ-017)
 **Description**: Systém musí implementovat pokročilé optimalizace výkonu.

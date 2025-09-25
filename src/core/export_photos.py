@@ -1411,7 +1411,7 @@ class PhotoExporter:
         # Handle !delete! strategy early (before creating export directory)
         if self.duplicate_strategy == '!delete!':
             self._handle_delete_duplicates_from_output()
-            return
+            return True
             
         # Create export directory
         self._create_export_directory()
@@ -1419,7 +1419,7 @@ class PhotoExporter:
         # Handle cleanup_duplicates strategy early
         if self.duplicate_strategy == 'cleanup_duplicates':
             self._cleanup_duplicates_folder()
-            return
+            return True
         
         # Find all files (supported and unsupported) - recursively scan subdirectories
         all_files = list(self.source_dir.rglob("*"))
@@ -1447,7 +1447,7 @@ class PhotoExporter:
 
         if not photo_files:
             log_warning("No supported photo files found in source directory")
-            return
+            return False
         
         # Detect and handle duplicates
         duplicates = self.duplicate_handler.detect_duplicates(photo_files)
@@ -1497,7 +1497,7 @@ class PhotoExporter:
             else:
                 log_error(f"❌ Insufficient disk space: {self._format_bytes(required)} required, {self._format_bytes(available)} available")
                 log_error("   Please free up disk space before running the export.")
-                return
+                return False
 
         # Process files with parallel processing
         if self.is_dry_run:
@@ -1583,6 +1583,9 @@ class PhotoExporter:
         
         # Save performance metrics
         self._save_performance_metrics()
+        
+        # Return success status
+        return self.stats.successful_exports > 0
 
     def _print_summary(self):
         """Print export summary"""
