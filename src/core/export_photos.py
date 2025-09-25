@@ -240,22 +240,22 @@ class PhotoExporter:
         # Update file organizer with export directory
         self.file_organizer.set_export_directory(self.export_dir)
         
-        # Setup logging with proper directory structure
-        self._setup_export_logging()
-        
         return export_path
 
-    def _setup_export_logging(self):
+    def _setup_export_logging(self, timestamp: str = None):
         """Setup logging for this specific export with timestamped filenames"""
-        if not self.export_dir:
+        if timestamp is None:
             return
             
-        # Get timestamp for this export (now just the directory name)
-        timestamp = self.export_dir.name
-        
-        # Setup logging with timestamped filenames and mode
-        from src.logging.logger_config import setup_logging
-        setup_logging(log_dir=self.target_dir, log_level="INFO", timestamp=timestamp, is_dry_run=self.is_dry_run)
+        # Reconfigure existing logger with timestamped filenames and mode
+        from src.logging.logger_config import get_logger
+        logger = get_logger()
+        logger.log_dir = self.target_dir
+        logger.log_level = "INFO"
+        logger.timestamp = timestamp
+        logger.is_dry_run = self.is_dry_run
+        logger._error_log_created = False
+        logger._setup_logger()
         
         # Store timestamp for use in other methods
         self.export_timestamp = timestamp
@@ -1407,6 +1407,10 @@ class PhotoExporter:
         """Main export process"""
         # Main process start is handled by shell script
         pass
+        
+        # Setup logging with timestamp first
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        self._setup_export_logging(timestamp)
         
         # Handle !delete! strategy early (before creating export directory)
         if self.duplicate_strategy == '!delete!':

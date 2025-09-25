@@ -72,9 +72,9 @@ class PhotoExportLogger:
                 self.log_dir / main_log_name,
                 format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
                 level="DEBUG",
-                rotation="10 MB",
-                retention="30 days",
-                compression="zip",
+                rotation=None,  # Disable automatic rotation
+                retention=None,  # Disable automatic retention
+                compression=None,  # Disable compression
                 encoding="utf-8"
             )
             
@@ -96,9 +96,9 @@ class PhotoExportLogger:
                 self.log_dir / errors_log_name,
                 format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
                 level="ERROR",
-                rotation="5 MB",
-                retention="90 days",
-                compression="zip",
+                rotation=None,  # Disable automatic rotation
+                retention=None,  # Disable automatic retention
+                compression=None,  # Disable compression
                 encoding="utf-8"
             )
             
@@ -193,7 +193,18 @@ def get_logger() -> PhotoExportLogger:
 def setup_logging(log_dir: Optional[Path] = None, log_level: str = "INFO", timestamp: str = None, is_dry_run: bool = False) -> PhotoExportLogger:
     """Setup logging configuration"""
     global _photo_logger
-    _photo_logger = PhotoExportLogger(log_dir, log_level, timestamp, is_dry_run)
+    
+    # If logger already exists, reconfigure it instead of creating new one
+    if _photo_logger is not None:
+        _photo_logger.log_dir = log_dir
+        _photo_logger.log_level = log_level
+        _photo_logger.timestamp = timestamp
+        _photo_logger.is_dry_run = is_dry_run
+        _photo_logger._error_log_created = False
+        _photo_logger._setup_logger()
+    else:
+        _photo_logger = PhotoExportLogger(log_dir, log_level, timestamp, is_dry_run)
+    
     return _photo_logger
 
 

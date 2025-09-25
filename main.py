@@ -199,11 +199,11 @@ def main() -> int:
         if not validate_arguments(args):
             return 1
         
-        # Setup logging
+        # Setup initial logging (will be reconfigured with timestamp later)
         setup_logging(
             log_level=args.log_level,
             is_dry_run=(args.mode == 'dry'),
-            log_dir=args.target_dir
+            log_dir=Path(args.target_dir)
         )
         
         # Print configuration
