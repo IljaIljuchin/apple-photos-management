@@ -1,269 +1,300 @@
-# Apple Photos Export Tool
+# Apple Photos Management Tool
 
-Nástroj pro export a organizaci fotografií z Apple Photos knihovny. Automaticky čte fotky a XMP soubory, extrahuje data vytvoření z EXIF a XMP metadat, vybere dřívější datum a organizuje fotky do struktury YEAR.
+[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://python.org)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Code Quality](https://img.shields.io/badge/code%20quality-A-green.svg)](https://github.com/username/apple-photos-management)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/username/apple-photos-management/actions)
 
-## Funkce
+> **Profesionální nástroj pro export a organizaci fotografií z Apple Photos s pokročilými funkcemi optimalizace výkonu a modulární architekturou.**
 
-- ✅ **Export z Apple Photos** - Přečte exportované fotky a XMP soubory
-- ✅ **Inteligentní datum** - Vybere dřívější datum mezi EXIF a XMP
-- ✅ **Organizace** - Vytvoří strukturu YEAR
-- ✅ **Přejmenování** - Formát YYYYMMDD-HHMMSS-SSS.ext
-- ✅ **Duplicity** - Automatické řešení duplicitních názvů
-- ✅ **Dry-run** - Testovací režim bez skutečného kopírování
-- ✅ **Logování** - Detailní logy a statistiky
-- ✅ **Různé formáty** - HEIC, JPG, PNG, MOV, MP4 a další
-- ✅ **Bezpečnost** - Vytvoří nový adresář pro každý export
-- ✅ **Optimalizace výkonu** - Inteligentní cachování a paralelní zpracování
+## 🚀 **Rychlý start**
 
-## Instalace
-
-### Požadavky
-- macOS (testováno na macOS 10.15+)
-- Python 3.8+
-- Apple Photos s exportovanými soubory
-
-### Instalace závislostí
+### Instalace
 ```bash
-pip3 install -r requirements.txt
-```
+# 1. Klonování repository
+git clone https://github.com/username/apple-photos-management.git
+cd apple-photos-management
 
-## Použití
+# 2. Automatická instalace
+python scripts/setup.py
+
+# 3. Aktivace virtuálního prostředí
+source venv/bin/activate  # Linux/Mac
+# nebo
+venv\Scripts\activate     # Windows
+
+# 4. Spuštění
+python main.py --help
+```
 
 ### Základní použití
 ```bash
-# Test v aktuálním adresáři
-./export_photos.sh
+# Dry-run (simulace bez kopírování)
+python main.py dry /cesta/k/fotkam
 
-# Test se specifikovanými adresáři
-./export_photos.sh /path/to/photos /path/to/output
+# Skutečný export
+python main.py run /cesta/k/fotkam /cesta/k/vystupu
 
-# Spuštění na ostro
-./export_photos.sh /path/to/photos /path/to/output run
+# S pokročilými možnostmi
+python main.py run /cesta/k/fotkam /cesta/k/vystupu \
+  --duplicate-strategy preserve_duplicates \
+  --workers 16 \
+  --batch-size 200
 ```
 
-### Parametry
-- `source_dir` - Adresář s exportovanými fotkami a XMP soubory (volitelné, výchozí: aktuální adresář)
-- `target_dir` - Adresář pro organizované fotky (volitelné, výchozí: aktuální adresář)
-- `run_mode` - "run" pro spuštění, cokoliv jiného pro dry-run test
+## ✨ **Hlavní funkce**
 
-## Jak to funguje
+### 🎯 **Univerzální podpora formátů**
+- **Obrázky**: HEIC, JPG, JPEG, PNG, TIFF, TIF, RAW, CR2, NEF, ARW
+- **Videa**: MOV, MP4, AVI, MKV, M4V
+- **Metadata**: XMP, AAE (Apple Adjustment Export)
+- **Automatická detekce** souvisejících souborů
 
-### 1. Export z Apple Photos
-1. Otevřete Apple Photos
-2. Vyberte fotky nebo celou knihovnu
-3. File → Export → Export Originals
-4. Uložte do adresáře (zachová XMP soubory)
+### 📁 **Inteligentní organizace**
+- **Chronologické třídění** podle data pořízení
+- **YEAR-based struktura** (2023/, 2024/, ...)
+- **Standardizované názvy** YYYYMMDD-HHMMSS-SSS.ext
+- **Automatické řešení** konfliktů názvů
 
-### 2. Spuštění nástroje
-```bash
-# Nejdříve test
-./export_photos.sh /path/to/exported/photos /path/to/organized/photos
+### 🔄 **Pokročilé duplikáty**
+- **5 strategií řešení** duplicit
+- **Hash-based detekce** s file type rozlišením
+- **Inteligentní zachování** duplicit
+- **Detailní statistiky** duplicit
 
-# Pokud je vše v pořádku, spusťte na ostro
-./export_photos.sh /path/to/exported/photos /path/to/organized/photos run
+### ⚡ **Optimalizace výkonu**
+- **File Caching**: 50-70% snížení I/O operací
+- **Batch Processing**: Optimalizované paralelní zpracování
+- **Memory Optimization**: Streamové zpracování pro velké datové sady
+- **Dynamic Worker Scaling**: Automatické škálování na základě systémových zdrojů
+- **Real-time Monitoring**: Kontinuální sledování výkonu
+
+### 🏗️ **Modulární architektura**
+- **SOLID principy** - čisté oddělení odpovědností
+- **Single Responsibility** - každá třída má jednu jasnou odpovědnost
+- **Dependency Injection** - snadné testování a rozšiřování
+- **Plugin Architecture** - připraveno pro budoucí rozšíření
+
+### 🔒 **Bezpečnost**
+- **Path Validation** - ochrana proti path traversal útokům
+- **Input Sanitization** - sanitizace všech vstupních dat
+- **Safe File Operations** - bezpečné file operace s proper error handling
+- **User Directory Access** - bezpečný přístup k běžným uživatelským adresářům
+
+## 📊 **Výsledky výkonu**
+
+| Metrika | Hodnota | Popis |
+|---------|---------|-------|
+| **Rychlost zpracování** | 250-400 souborů/sekundu | Průměrná rychlost |
+| **Snížení I/O** | 50-70% | Díky inteligentnímu cachování |
+| **Snížení paměti** | 50% | Pro velké datové sady |
+| **CPU využití** | Optimální | Automatické škálování workerů |
+| **Škálovatelnost** | Lineární | S počtem dostupných jader |
+
+## 🏗️ **Architektura**
+
+### Modulární design
+```
+src/
+├── core/                  # Jádro aplikace
+│   ├── export_photos.py   # Hlavní orchestrátor
+│   ├── duplicate_handler.py # Správa duplicit
+│   ├── file_organizer.py  # Organizace souborů
+│   ├── metadata_extractor.py # Extrakce metadat
+│   ├── config.py          # Konfigurace
+│   ├── models.py          # Datové modely
+│   └── utils.py           # Utility funkce
+├── logging/               # Logging systém
+├── security/              # Bezpečnostní funkce
+└── utils/                 # Performance monitoring
 ```
 
-### 3. Výsledek
+### Klíčové principy
+- **Single Responsibility**: Každá třída má jednu jasnou odpovědnost
+- **Open/Closed**: Snadné rozšiřování bez modifikace existujícího kódu
+- **Dependency Inversion**: Závislosti na abstrakcích, ne na konkrétních implementacích
+- **Interface Segregation**: Malé, specifické rozhraní místo velkých, obecných
+
+## 📋 **Strategie duplicit**
+
+| Strategie | Popis | Použití |
+|-----------|-------|---------|
+| `keep_first` | Zachová první výskyt | Výchozí, rychlé zpracování |
+| `skip_duplicates` | Přeskočí všechny duplicity | Když chcete pouze unikátní fotky |
+| `preserve_duplicates` | Zachová první + jeden duplikát | Pro archivaci s rezervou |
+| `cleanup_duplicates` | Odstraní složku duplicit | Úklid po manuální kontrole |
+| `!delete!` | Smaže duplicity z výstupu | Drastické řešení |
+
+## 📁 **Výstupní struktura**
+
 ```
-organized_photos/
-├── 20250115-143022/           # Timestamp exportu
+export_directory/
+├── 20250925-143022/           # Timestamp exportu
+│   ├── 2022/                  # Rok pořízení
+│   │   ├── 20220310-091533-001.heic
+│   │   ├── 20220310-091533-001.xmp
+│   │   └── 20220310-091533-001.aae
 │   ├── 2023/
-│   │   ├── 20230115-143022-001.HEIC
-│   │   └── 20230620-091533-001.PNG
-│   ├── 2024/
-│   │   └── 20240310-164511-001.MOV
-│   ├── 20250115-143022_export.log
-│   ├── 20250115-143022_errors.log
-│   ├── 20250115-143022_metadata.json
-│   └── 20250115-143022_summary.txt
+│   │   ├── 20230615-143022-001.heic
+│   │   └── 20230815-164511-001.mp4
+│   └── 2024/
+│       └── 20240101-120000-001.heic
+│
+├── duplicates_20250925-143022/ # Duplicity (pokud preserve_duplicates)
+│   └── 2023/
+│       └── 20230615-143022-002.heic
+│
+└── Log soubory
+    ├── 20250925-143022_export.log
+    ├── 20250925-143022_errors.log
+    ├── 20250925-143022_metadata.json
+    ├── 20250925-143022_summary.txt
+    ├── 20250925-143022_performance_metrics.json
+    └── 20250925-143022_performance_analysis.txt
 ```
 
-## Podporované formáty
+## ⚙️ **Konfigurace**
 
-### Obrázky
-- HEIC (iPhone fotky)
-- JPG/JPEG
-- PNG
-- TIFF/TIF
-- RAW (CR2, NEF, ARW)
+### Environment proměnné
+```bash
+# .env soubor
+EXPORT_WORKERS=8
+EXPORT_BATCH_SIZE=100
+EXPORT_CACHE_SIZE=10000
+EXPORT_LOG_LEVEL=INFO
+EXPORT_MEMORY_OPTIMIZATION=true
+EXPORT_PERFORMANCE_MONITORING=true
+```
 
-### Videa
-- MOV
-- MP4
-- AVI
-- MKV
-- M4V
+### CLI parametry
+```bash
+python main.py [dry|run] <source_dir> [target_dir] [options]
 
-## Logika výběru data
+Options:
+  --duplicate-strategy STRATEGY  # Strategie duplicit
+  --workers COUNT               # Počet workerů
+  --batch-size SIZE            # Velikost batch
+  --log-level LEVEL            # Úroveň logování
+  --cache-size SIZE            # Velikost cache
+  --memory-optimization        # Povolit memory optimization
+  --performance-monitoring     # Povolit performance monitoring
+  --help                       # Nápověda
+```
 
-Nástroj používá inteligentní logiku pro výběr nejlepšího data vytvoření:
-
-1. **EXIF datum** - Skutečné datum pořízení z kamery (kromě HEIC souborů)
-2. **XMP datum** - Datum z Apple Photos metadat
-3. **Dřívější datum** - Vybere dřívější z EXIF a XMP
-4. **Fallback** - Pokud chybí oba, použije datum souboru
-
-### Optimalizace pro HEIC soubory
-- **HEIC soubory** - Přeskočí EXIF extrakci pro lepší výkon
-- **Důvod** - HEIC vždy obsahuje EXIF, ale XMP data jsou spolehlivější a rychlejší
-- **Výsledek** - Rychlejší zpracování HEIC souborů bez ztráty přesnosti
-
-### Proč dřívější datum?
-- EXIF obsahuje skutečné datum pořízení
-- XMP může obsahovat datum importu (pozdější)
-- Dřívější datum je vždy správné datum pořízení
-
-## Optimalizace výkonu
-
-### Automatické optimalizace
-- **File Caching**: 50-70% snížení I/O operací pomocí inteligentního cachování
-- **Batch Processing**: Optimalizované zpracování souborů s dynamickou velikostí batch
-- **Memory Optimization**: Streamové zpracování pro velké datové sady (>1000 souborů)
-- **Dynamic Worker Scaling**: Automatická optimalizace na základě systémových zdrojů
-- **Real-time Monitoring**: Kontinuální sledování výkonu a optimalizace
-- **Intelligent Processing**: Automatický výběr mezi streamovým a batch zpracováním
-
-### Výsledky výkonu
-- **Průměrná rychlost**: 250-400 souborů/sekundu
-- **Paměť**: 50% snížení spotřeby pro velké datové sady
-- **CPU**: Optimální využití dostupných jader
-- **Škálovatelnost**: Automatická adaptace na systémové zdroje
-
-### Monitoring výkonu
-Nástroj automaticky:
-- Sleduje rychlost zpracování v reálném čase
-- Identifikuje úzká místa výkonu
-- Poskytuje doporučení pro optimalizaci
-- Exportuje detailní metriky výkonu
-
-## Řešení duplicit
-
-Při stejných časech vytvoření:
-- `20231215-143022-001.HEIC`
-- `20231215-143022-002.JPG`
-- `20231215-143022-003.PNG`
-
-## Testování
+## 🧪 **Testování**
 
 ### Spuštění testů
 ```bash
 # Všechny testy
-python3 -m pytest test_export_photos.py -v
+python -m pytest tests/ -v
+
+# S pokrytím kódu
+python -m pytest tests/ --cov=src --cov-report=html
 
 # Konkrétní test
-python3 -m pytest test_export_photos.py::TestPhotoExporter::test_basic_functionality -v
-
-# S coverage
-python3 -m pytest test_export_photos.py --cov=export_photos --cov-report=html
+python -m pytest tests/test_core.py::test_photo_metadata_creation -v
 ```
 
 ### Testovací data
-Nástroj byl testován na:
-- `/Users/Ilja_Iljuchin/Developer/apple-photos-management/Test1` - Málo dat
-- `/Users/Ilja_Iljuchin/Developer/apple-photos-management/Test2` - Více dat
-- `/Users/Ilja_Iljuchin/Developer/apple-photos-management/TestFull2025` - Plná galerie
+- **`examples/TestComprehensive/`** - Kompletní testovací dataset
+- Zahrnuje různé formáty, metadata, duplicity a edge cases
+- Používá se pro všechny automatické testy
 
-## Logování
+## 🚀 **Deployment**
 
-### Úrovně logů
-- **INFO** - Základní informace o procesu
-- **WARNING** - Varování (nepodporované formáty, duplicity)
-- **ERROR** - Chyby při zpracování
-- **DEBUG** - Detailní informace pro debugging
-
-### Log soubory
-- `YYYYMMDD-HHMMSS_export.log` - Detailní log
-- `YYYYMMDD-HHMMSS_errors.log` - Chybové logy
-- `YYYYMMDD-HHMMSS_dry.log` - Dry-run log
-- `YYYYMMDD-HHMMSS_metadata.json` - Metadata v JSON formátu
-- `YYYYMMDD-HHMMSS_summary.txt` - Shrnutí exportu
-- `YYYYMMDD-HHMMSS_performance_metrics.json` - Metriky výkonu
-- `YYYYMMDD-HHMMSS_performance_analysis.txt` - Analýza výkonu
-
-## Bezpečnost
-
-### Ochrana dat
-- **Žádné přepsání** - Vždy vytvoří nový adresář
-- **Timestamp exportu** - Každý export má unikátní název
-- **Dry-run režim** - Testování bez rizika
-- **Backup logů** - Všechny operace jsou zaznamenány
-
-### Historie exportů
-```
-target_directory/
-├── 20250115-143022/           # První export
-├── 20250115-154510/           # Druhý export
-├── 20250115-162033/           # Třetí export
-└── export_history.txt         # Historie všech exportů
-```
-
-## Troubleshooting
-
-### Časté problémy
-
-#### 1. Chybějící závislosti
+### Produkční nasazení
 ```bash
-pip3 install -r requirements.txt --user
+# 1. Vytvoření deployment balíčku
+python scripts/deploy.py
+
+# 2. Instalace na cílovém systému
+python install.py
+
+# 3. Konfigurace
+cp env.example .env
+# Upravit .env podle potřeby
+
+# 4. Spuštění
+python main.py run /source/path /target/path
 ```
 
-#### 2. Oprávnění k zápisu
+### Docker deployment
 ```bash
-chmod +x export_photos.sh
-chmod +x export_photos.py
+# Build image
+docker build -t apple-photos-management .
+
+# Run container
+docker run -v /source:/app/input -v /target:/app/output apple-photos-management
+
+# Or use docker-compose
+docker-compose up
 ```
 
-#### 3. Chybějící XMP soubory
-- Ujistěte se, že exportujete s "Export Originals"
-- XMP soubory jsou vytvářeny automaticky
+## 📚 **Dokumentace**
 
-#### 4. Nesprávné datum
-- Zkontrolujte EXIF data v originálních souborech
-- XMP může obsahovat datum importu místo pořízení
+### Hlavní dokumenty
+- **[README.md](README.md)** - Tato dokumentace
+- **[docs/project_structure.md](docs/project_structure.md)** - Detailní architektura
+- **[docs/requirements.md](docs/requirements.md)** - Funkční požadavky
+- **[docs/refactoring_summary.md](docs/refactoring_summary.md)** - Historie vylepšení
+- **[docs/performance_analysis.md](docs/performance_analysis.md)** - Analýza výkonu
+- **[docs/optimization_implementation.md](docs/optimization_implementation.md)** - Implementace optimalizací
 
-### Debug režim
-```bash
-# Spuštění s debug výstupem
-python3 export_photos.py /path/to/source /path/to/target true
-```
+### API dokumentace
+- **[core/config.py](core/config.py)** - Konfigurace
+- **[core/models.py](core/models.py)** - Datové modely
+- **[core/utils.py](core/utils.py)** - Utility funkce
 
-## Vývoj
+## 🤝 **Přispívání**
 
-### Struktura projektu
-```
-apple-photos-management/
-├── src/                      # Source code
-│   ├── core/                # Core functionality
-│   │   └── export_photos.py # Main export logic
-│   ├── logging/             # Logging configuration
-│   │   └── logger_config.py # Loguru-based logging
-│   ├── security/            # Security utilities
-│   │   └── security_utils.py # Path validation
-│   └── utils/               # Utility functions
-├── tests/                   # Test suite
-├── scripts/                 # Executable scripts
-│   └── export_photos.sh    # Shell wrapper
-├── docs/                    # Documentation
-├── examples/                # Test data and outputs
-└── requirements.txt         # Dependencies
-```
+### Vývoj
+1. Fork repository
+2. Vytvoř feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit změny (`git commit -m 'Add amazing feature'`)
+4. Push do branch (`git push origin feature/amazing-feature`)
+5. Otevři Pull Request
 
-### Přidání nových formátů
-Upravte `SUPPORTED_FORMATS` v `PhotoExporter` třídě:
-```python
-SUPPORTED_FORMATS = {'.heic', '.jpg', '.jpeg', '.png', '.mov', '.mp4', '.new_format'}
-```
+### Reportování bugů
+- Použij GitHub Issues
+- Přilož log soubory a kroky k reprodukci
+- Specifikuj verzi a operační systém
 
-### Přidání nových metadat
-Rozšiřte `PhotoMetadata` dataclass a odpovídající parsery.
+## 🆘 **Podpora**
 
-## Licence
+### Troubleshooting
+- **Chyby s HEIC**: Nainstaluj `pillow-heif`
+- **Pomalé zpracování**: Zvyš počet workerů nebo batch size
+- **Problémy s pamětí**: Sniž cache size nebo použij streaming mode
 
-MIT License - viz LICENSE soubor pro detaily.
+### Kontakt
+- **Issues**: [GitHub Issues](https://github.com/username/apple-photos-management/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/username/apple-photos-management/discussions)
 
-## Podpora
+## 📄 **Licence**
 
-Pro problémy a dotazy vytvořte issue v GitHub repository.
+Tento projekt je licencován pod MIT licencí - viz [LICENSE](LICENSE) soubor pro detaily.
+
+## 🏆 **Uznání**
+
+- **Pillow** - Python imaging library
+- **loguru** - Modern logging library
+- **tqdm** - Progress bars
+- **psutil** - System monitoring
+- **lxml** - XML processing
 
 ---
 
-**Poznámka**: Tento nástroj je navržen pro použití s exportovanými soubory z Apple Photos. Pro přímý přístup k Photos knihovně by bylo potřeba použít Photos framework API.
+**Verze**: 2.0.0  
+**Poslední aktualizace**: 2025-09-25  
+**Python**: 3.8+  
+**Status**: ✅ Produkční verze
+
+---
+
+<div align="center">
+
+**Vytvořeno s ❤️ pro profesionální správu fotografií**
+
+[⭐ Star na GitHub](https://github.com/username/apple-photos-management) • [🐛 Report Bug](https://github.com/username/apple-photos-management/issues) • [💡 Request Feature](https://github.com/username/apple-photos-management/issues)
+
+</div>

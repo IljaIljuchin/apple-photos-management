@@ -42,6 +42,8 @@ from src.security.security_utils import validate_path, validate_directory_access
 from src.utils.performance_monitor import get_performance_monitor, timed_operation
 from src.utils.performance_optimizer import get_performance_optimizer
 from src.utils.performance_analyzer import get_performance_analyzer
+from src.core.duplicate_handler import DuplicateHandler
+from src.core.file_organizer import FileOrganizer
 
 # Custom exceptions for better error handling
 class PhotoProcessingError(Exception):
@@ -201,6 +203,12 @@ class PhotoExporter:
         self.stats = ExportStats()
         self.duplicates_to_preserve = {}
         
+        # Duplicate handling
+        self.duplicate_handler = DuplicateHandler(duplicate_strategy)
+        
+        # File organization
+        self.file_organizer = FileOrganizer(export_dir=None, is_dry_run=is_dry_run)
+        
         # File tracking for duplicates
         self.file_timestamps: Dict[str, int] = defaultdict(int)
         
@@ -228,6 +236,9 @@ class PhotoExporter:
             log_info(f"📁 Would create export directory: {export_path.name}")
         
         self.export_dir = export_path
+        
+        # Update file organizer with export directory
+        self.file_organizer.set_export_directory(self.export_dir)
         
         # Setup logging with proper directory structure
         self._setup_export_logging()
@@ -418,6 +429,15 @@ class PhotoExporter:
         
         return results
     
+    def _update_duplicate_stats(self):
+        """Update statistics from duplicate handler"""
+        duplicate_stats = self.duplicate_handler.get_duplicate_stats()
+        self.stats.duplicate_files_found = duplicate_stats.duplicate_files_found
+        self.stats.duplicate_files_resolved = duplicate_stats.duplicate_files_resolved
+        self.stats.duplicate_files_preserved = duplicate_stats.duplicate_files_preserved
+        self.stats.duplicate_files_discarded = duplicate_stats.duplicate_files_discarded
+        self.stats.files_skipped_duplicates = duplicate_stats.files_skipped_duplicates
+
     def _calculate_optimal_workers(self) -> int:
         """
         Calculate optimal number of workers based on system resources.
@@ -634,37 +654,14 @@ class PhotoExporter:
 
     def _generate_filename(self, creation_date: datetime, extension: str) -> str:
         """Generate filename in format YYYYMMDD-HHMMSS-SSS.ext"""
-        # Format: YYYYMMDD-HHMMSS
-        base_timestamp = creation_date.strftime('%Y%m%d-%H%M%S')
-        
-        # Add milliseconds if available, otherwise use counter
-        if creation_date.microsecond > 0:
-            milliseconds = str(creation_date.microsecond // 1000).zfill(3)
-        else:
-            # Use counter for same timestamp
-            self.file_timestamps[base_timestamp] += 1
-            milliseconds = str(self.file_timestamps[base_timestamp]).zfill(3)
-        
-        # Sanitize the filename
-        filename = f"{base_timestamp}-{milliseconds}{extension}"
-        return sanitize_filename(filename)
+        return self.file_organizer.generate_filename(creation_date, extension)
 
     def _create_directory_structure(self, year: int, month: int, day: int) -> Path:
         """Create YEAR directory structure (flat structure)"""
         if self.export_dir is None:
             self._create_export_directory()
         
-        # Use secure path creation
-        try:
-            dir_path = create_safe_path(self.export_dir, str(year))
-        except SecurityError as e:
-            log_error(f"Failed to create safe directory path: {e}")
-            raise ValueError(f"Invalid directory path: {e}")
-        
-        if not self.is_dry_run:
-            dir_path.mkdir(parents=True, exist_ok=True)
-        
-        return dir_path
+        return self.file_organizer.create_directory_structure(year, month, day)
 
     def _process_photo_file(self, photo_path: Path) -> Optional[PhotoMetadata]:
         """Process a single photo file and extract metadata"""
@@ -808,49 +805,6 @@ class PhotoExporter:
                 error_message=str(e)
             )
     
-    def _detect_duplicates(self, photo_files: List[Path]) -> Dict[str, List[Path]]:
-        """Detect duplicate files based on file content (hash) and file type"""
-        import hashlib
-        
-        seen_files = {}
-        duplicates = {}
-
-        for photo_path in photo_files:
-            try:
-                # Calculate file hash
-                with open(photo_path, 'rb') as f:
-                    file_hash = hashlib.md5(f.read()).hexdigest()
-                
-                # Get file type (extension) for better duplicate detection
-                file_extension = photo_path.suffix.lower()
-                file_type = self._get_file_type_category(file_extension)
-                
-                # Create a composite key: hash + file_type
-                # This ensures that MOV and HEIC files with same content are treated as different
-                composite_key = f"{file_hash}_{file_type}"
-                
-                if composite_key in seen_files:
-                    if composite_key not in duplicates:
-                        duplicates[composite_key] = [seen_files[composite_key]]
-                    duplicates[composite_key].append(photo_path)
-                else:
-                    seen_files[composite_key] = photo_path
-            except Exception as e:
-                log_warning(f"Could not calculate hash for {photo_path}: {e}")
-                # Fallback to filename-based detection with file type consideration
-                filename = photo_path.name
-                file_extension = photo_path.suffix.lower()
-                file_type = self._get_file_type_category(file_extension)
-                composite_filename = f"{filename}_{file_type}"
-                
-                if composite_filename in seen_files:
-                    if composite_filename not in duplicates:
-                        duplicates[composite_filename] = [seen_files[composite_filename]]
-                    duplicates[composite_filename].append(photo_path)
-                else:
-                    seen_files[composite_filename] = photo_path
-
-        return duplicates
 
     def _get_file_type_category(self, extension: str) -> str:
         """Get file type category for duplicate detection"""
@@ -877,147 +831,8 @@ class PhotoExporter:
             
             target_dir = self._create_directory_structure(year, month, day)
             
-            # Generate new filename
-            new_filename = self._generate_filename(metadata.creation_date, metadata.file_extension)
-            target_path = target_dir / new_filename
-            
-            # Check for duplicates
-            if target_path.exists():
-                self.stats.duplicates_handled += 1
-                log_warning(f"Duplicate filename detected: {new_filename}")
-                # Generate unique filename
-                counter = 1
-                while target_path.exists():
-                    name_part = new_filename.rsplit('.', 1)[0]
-                    ext_part = '.' + new_filename.rsplit('.', 1)[1]
-                    new_filename = f"{name_part}-{counter:03d}{ext_part}"
-                    target_path = target_dir / new_filename
-                    counter += 1
-            
-            if self.is_dry_run:
-                # Dry-run mode - just log what would happen
-                log_debug(f"DRY-RUN: Would copy {metadata.original_filename} -> {target_path}")
-                
-                # Log to file for dry-run analysis with timestamp
-                timestamp = getattr(self, 'export_timestamp', datetime.now().strftime('%Y%m%d-%H%M%S'))
-                dry_run_log = self.target_dir / f"{timestamp}_dry.log"
-                dry_run_log.parent.mkdir(parents=True, exist_ok=True)
-                with open(dry_run_log, "a", encoding="utf-8") as f:
-                    f.write(f"WOULD COPY: {metadata.original_path} -> {target_path}\n")
-                
-                # Process XMP and AAE files in dry-run mode for accurate counting
-                original_path = Path(metadata.original_path)
-                
-                # Check for XMP file
-                xmp_path = original_path.with_suffix(original_path.suffix + '.xmp')
-                if not xmp_path.exists():
-                    xmp_path = original_path.with_suffix(original_path.suffix + '.XMP')
-                if not xmp_path.exists():
-                    xmp_path = original_path.with_suffix('.xmp')
-                if not xmp_path.exists():
-                    xmp_path = original_path.with_suffix('.XMP')
-                
-                if xmp_path.exists():
-                    self.stats.xmp_files_processed += 1
-                    log_debug(f"DRY-RUN: Would copy XMP: {xmp_path.name}")
-                
-                # Check for AAE file
-                aae_path = original_path.with_suffix('.aae')
-                if not aae_path.exists():
-                    aae_path = original_path.with_suffix('.AAE')
-                
-                # Try Apple Photos pattern (IMG_1234.HEIC -> IMG_O1234.aae)
-                if not aae_path.exists():
-                    photo_name = original_path.stem
-                    if photo_name.startswith('IMG_'):
-                        number_part = photo_name[4:]
-                        aae_name = f"IMG_O{number_part}.aae"
-                        test_path = original_path.parent / aae_name
-                        if test_path.exists():
-                            aae_path = test_path
-                        else:
-                            aae_name = f"IMG_O{number_part}.AAE"
-                            test_path = original_path.parent / aae_name
-                            if test_path.exists():
-                                aae_path = test_path
-                    # Try numeric pattern (1470.HEIC -> 1470O.aae)
-                    elif photo_name.isdigit():
-                        aae_name = f"{photo_name}O.aae"
-                        test_path = original_path.parent / aae_name
-                        if test_path.exists():
-                            aae_path = test_path
-                        else:
-                            aae_name = f"{photo_name}O.AAE"
-                            test_path = original_path.parent / aae_name
-                            if test_path.exists():
-                                aae_path = test_path
-                
-                if aae_path.exists():
-                    self.stats.aae_files_processed += 1
-                    log_debug(f"DRY-RUN: Would copy AAE: {aae_path.name}")
-                
-                return True
-            else:
-                # Real mode - actually copy the file
-                shutil.copy2(metadata.original_path, target_path)
-                log_debug(f"Copied: {metadata.original_filename} -> {target_path}")
-                
-                # Copy XMP file if it exists
-                original_path = Path(metadata.original_path)
-                xmp_path = original_path.with_suffix(original_path.suffix + '.xmp')
-                if not xmp_path.exists():
-                    xmp_path = original_path.with_suffix(original_path.suffix + '.XMP')
-                if not xmp_path.exists():
-                    xmp_path = original_path.with_suffix('.xmp')
-                if not xmp_path.exists():
-                    xmp_path = original_path.with_suffix('.XMP')
-                
-                if xmp_path.exists():
-                    xmp_filename = new_filename.rsplit('.', 1)[0] + '.xmp'
-                    xmp_target_path = target_dir / xmp_filename
-                    shutil.copy2(xmp_path, xmp_target_path)
-                    log_debug(f"Copied XMP: {xmp_path.name} -> {xmp_target_path}")
-                    self.stats.xmp_files_processed += 1
-                
-                # Copy AAE file if it exists
-                aae_path = original_path.with_suffix('.aae')
-                if not aae_path.exists():
-                    aae_path = original_path.with_suffix('.AAE')
-                
-                # Try Apple Photos pattern (IMG_1234.HEIC -> IMG_O1234.aae)
-                if not aae_path.exists():
-                    photo_name = original_path.stem
-                    if photo_name.startswith('IMG_'):
-                        number_part = photo_name[4:]
-                        aae_name = f"IMG_O{number_part}.aae"
-                        test_path = original_path.parent / aae_name
-                        if test_path.exists():
-                            aae_path = test_path
-                        else:
-                            aae_name = f"IMG_O{number_part}.AAE"
-                            test_path = original_path.parent / aae_name
-                            if test_path.exists():
-                                aae_path = test_path
-                    # Try numeric pattern (1470.HEIC -> 1470O.aae)
-                    elif photo_name.isdigit():
-                        aae_name = f"{photo_name}O.aae"
-                        test_path = original_path.parent / aae_name
-                        if test_path.exists():
-                            aae_path = test_path
-                        else:
-                            aae_name = f"{photo_name}O.AAE"
-                            test_path = original_path.parent / aae_name
-                            if test_path.exists():
-                                aae_path = test_path
-                
-                if aae_path.exists():
-                    aae_filename = new_filename.rsplit('.', 1)[0] + '.aae'
-                    aae_target_path = target_dir / aae_filename
-                    shutil.copy2(aae_path, aae_target_path)
-                    log_debug(f"Copied AAE: {aae_path.name} -> {aae_target_path}")
-                    self.stats.aae_files_processed += 1
-                
-                return True
+            # Use FileOrganizer to copy the photo and associated files
+            return self.file_organizer.copy_photo_with_metadata(metadata, target_dir)
                 
         except Exception as e:
             error_msg = f"Error processing {metadata.original_filename}: {e}"
@@ -1128,72 +943,10 @@ class PhotoExporter:
                 error_message=str(e)
             )
     
-    def _handle_duplicates(self, duplicates: Dict[str, List[Path]]) -> List[Path]:
-        """Handle duplicates based on strategy"""
-        if not duplicates:
-            return []
-        
-        self.stats.duplicate_files_found = len(duplicates)
-        log_info(f"Found {len(duplicates)} duplicate files")
-        
-        if self.duplicate_strategy == 'keep_first':
-            # Keep only the first occurrence of each duplicate
-            resolved_files = []
-            for filename, paths in duplicates.items():
-                resolved_files.append(paths[0])
-                self.stats.duplicate_files_resolved += len(paths) - 1
-                log_debug(f"Duplicate '{filename}': keeping first occurrence, skipping {len(paths) - 1} duplicates")
-            return resolved_files
-            
-        elif self.duplicate_strategy == 'skip_duplicates':
-            # Skip all files that have duplicates
-            skipped_files = []
-            for filename, paths in duplicates.items():
-                skipped_files.extend(paths)
-                self.stats.files_skipped_duplicates += len(paths)
-                log_debug(f"Duplicate '{filename}': skipping all {len(paths)} occurrences")
-            return []
-            
-        elif self.duplicate_strategy == 'preserve_duplicates':
-            # Keep first occurrence for main export, preserve others in duplicates folder
-            resolved_files = []
-            for filename, paths in duplicates.items():
-                # Keep first occurrence for main export
-                resolved_files.append(paths[0])
-                self.stats.duplicate_files_resolved += 1
-                
-                # Preserve up to 2 copies total (first + one duplicate)
-                if len(paths) > 1:
-                    self.stats.duplicate_files_preserved += 1
-                    log_debug(f"Duplicate '{filename}': preserving 1 duplicate")
-                
-                # Discard additional copies (3rd, 4th, etc.)
-                if len(paths) > 2:
-                    discarded_count = len(paths) - 2
-                    self.stats.duplicate_files_discarded += discarded_count
-                    log_warning(f"Duplicate '{filename}': discarding {discarded_count} additional copies (keeping only 2 total)")
-            
-            return resolved_files
-            
-        elif self.duplicate_strategy == 'cleanup_duplicates':
-            # Remove duplicates folder and keep only main export
-            log_info("Cleanup mode: removing duplicates folder...")
-            self._cleanup_duplicates_folder()
-            return []
-            
-        elif self.duplicate_strategy == '!delete!':
-            # Delete duplicate files from output directory (not source!)
-            log_warning("DELETE mode: will delete duplicate files from OUTPUT directory!")
-            return self._delete_duplicates_from_output(duplicates)
-        
-        else:
-            # Default: keep first
-            self.duplicate_strategy = 'keep_first'
-            return self._handle_duplicates(duplicates)
 
     def _process_preserved_duplicates(self):
         """Process duplicates and copy them to duplicates folder with export date"""
-        if not self.duplicates_to_preserve:
+        if not self.duplicate_handler.has_preserved_duplicates():
             return
             
         log_info("Processing preserved duplicates...")
@@ -1209,7 +962,7 @@ class PhotoExporter:
             log_info(f"Would create duplicates directory: {duplicates_dir}")
         
         # Process each duplicate group
-        for filename, paths in self.duplicates_to_preserve.items():
+        for filename, paths in self.duplicate_handler.duplicates_to_preserve.items():
             if len(paths) <= 1:
                 continue  # No duplicates to preserve
                 
@@ -1232,75 +985,10 @@ class PhotoExporter:
 
     def _copy_duplicate_photo(self, metadata: PhotoMetadata, duplicates_dir: Path) -> bool:
         """Copy duplicate photo to duplicates directory with same naming logic"""
-        try:
-            if not metadata.is_valid or not metadata.creation_date:
-                log_warning(f"Skipping invalid duplicate: {metadata.original_filename}")
-                return False
-
-            year, month, day = metadata.creation_date.year, metadata.creation_date.month, metadata.creation_date.day
-            target_dir = duplicates_dir / str(year) / f"{month:02d}" / f"{day:02d}"
-            
-            if not self.is_dry_run:
-                target_dir.mkdir(parents=True, exist_ok=True)
-            
-            new_filename = self._generate_filename(metadata.creation_date, metadata.file_extension)
-            target_path = target_dir / new_filename
-
-            # Handle potential filename duplicates
-            counter = 1
-            original_target_path = target_path
-            while target_path.exists():
-                stem = original_target_path.stem
-                ext = original_target_path.suffix
-                target_path = target_dir / f"{stem}-{counter:03d}{ext}"
-                counter += 1
-
-            # Copy main file
-            if not self.is_dry_run:
-                shutil.copy2(metadata.original_path, target_path)
-                log_debug(f"Copied duplicate: {metadata.original_filename} -> {target_path}")
-            else:
-                log_debug(f"Would copy duplicate: {metadata.original_filename} -> {target_path}")
-
-            # Copy XMP file if it exists
-            original_path = Path(metadata.original_path)
-            xmp_path = original_path.with_suffix(original_path.suffix + '.xmp')
-            if not xmp_path.exists():
-                xmp_path = original_path.with_suffix(original_path.suffix + '.XMP')
-            if not xmp_path.exists():
-                xmp_path = original_path.with_suffix('.xmp')
-            if not xmp_path.exists():
-                xmp_path = original_path.with_suffix('.XMP')
-
-            if xmp_path.exists():
-                xmp_target_path = target_path.with_suffix('.xmp')
-                if not self.is_dry_run:
-                    shutil.copy2(xmp_path, xmp_target_path)
-                    log_debug(f"Copied duplicate XMP: {xmp_path.name} -> {xmp_target_path}")
-                else:
-                    log_debug(f"Would copy duplicate XMP: {xmp_path.name} -> {xmp_target_path}")
-
-            # Copy AAE file if it exists
-            aae_path = original_path.with_suffix('.aae')
-            if not aae_path.exists():
-                aae_path = original_path.with_suffix('.AAE')
-
-            if aae_path.exists():
-                aae_target_path = target_path.with_suffix('.aae')
-                if not self.is_dry_run:
-                    shutil.copy2(aae_path, aae_target_path)
-                    log_debug(f"Copied duplicate AAE: {aae_path.name} -> {aae_target_path}")
-                else:
-                    log_debug(f"Would copy duplicate AAE: {aae_path.name} -> {aae_target_path}")
-
+        result = self.file_organizer.copy_duplicate_photo(metadata, duplicates_dir)
+        if result:
             self.stats.duplicate_files_preserved += 1
-            return True
-
-        except Exception as e:
-            error_msg = f"Error copying duplicate {metadata.original_filename}: {e}"
-            log_error(error_msg)
-            self.stats.errors.append(error_msg)
-            return False
+        return result
 
     def _cleanup_duplicates_folder(self):
         """Remove duplicates folder after manual review"""
@@ -1630,97 +1318,11 @@ class PhotoExporter:
             
             target_dir = self._create_directory_structure(year, month, day)
             
-            # Generate new filename
-            new_filename = self._generate_filename(metadata.creation_date, metadata.file_extension)
-            target_path = target_dir / new_filename
-            
-            # Check for duplicates
-            if target_path.exists():
-                self.stats.duplicates_handled += 1
-                log_warning(f"Duplicate filename detected: {new_filename}")
-                # Generate unique filename
-                counter = 1
-                while target_path.exists():
-                    name_part = new_filename.rsplit('.', 1)[0]
-                    ext_part = '.' + new_filename.rsplit('.', 1)[1]
-                    new_filename = f"{name_part}-{counter:03d}{ext_part}"
-                    target_path = target_dir / new_filename
-                    counter += 1
-            
-            # Copy main file
-            if not self.is_dry_run:
-                shutil.copy2(metadata.original_path, target_path)
-                log_debug(f"Copied: {metadata.original_filename} -> {target_path}")
-            else:
-                log_debug(f"Would copy: {metadata.original_filename} -> {target_path}")
-            
-            # Copy XMP file if it exists
-            original_path = Path(metadata.original_path)
-            xmp_path = original_path.with_suffix(original_path.suffix + '.xmp')
-            if not xmp_path.exists():
-                xmp_path = original_path.with_suffix(original_path.suffix + '.XMP')
-            if not xmp_path.exists():
-                xmp_path = original_path.with_suffix('.xmp')
-            if not xmp_path.exists():
-                xmp_path = original_path.with_suffix('.XMP')
-            
-            if xmp_path.exists():
-                xmp_filename = new_filename.rsplit('.', 1)[0] + '.xmp'
-                xmp_target_path = target_dir / xmp_filename
-                
-                if not self.is_dry_run:
-                    shutil.copy2(xmp_path, xmp_target_path)
-                    log_debug(f"Copied XMP: {xmp_path.name} -> {xmp_target_path}")
-                else:
-                    log_debug(f"Would copy XMP: {xmp_path.name} -> {xmp_target_path}")
-                
-                self.stats.xmp_files_processed += 1
-            
-            # Copy AAE file if it exists
-            aae_path = original_path.with_suffix('.aae')
-            if not aae_path.exists():
-                aae_path = original_path.with_suffix('.AAE')
-            
-            # Try Apple Photos pattern (IMG_1234.HEIC -> IMG_O1234.aae)
-            if not aae_path.exists():
-                photo_name = original_path.stem
-                if photo_name.startswith('IMG_'):
-                    number_part = photo_name[4:]
-                    aae_name = f"IMG_O{number_part}.aae"
-                    test_path = original_path.parent / aae_name
-                    if test_path.exists():
-                        aae_path = test_path
-                    else:
-                        aae_name = f"IMG_O{number_part}.AAE"
-                        test_path = original_path.parent / aae_name
-                        if test_path.exists():
-                            aae_path = test_path
-                # Try numeric pattern (1470.HEIC -> 1470O.aae)
-                elif photo_name.isdigit():
-                    aae_name = f"{photo_name}O.aae"
-                    test_path = original_path.parent / aae_name
-                    if test_path.exists():
-                        aae_path = test_path
-                    else:
-                        aae_name = f"{photo_name}O.AAE"
-                        test_path = original_path.parent / aae_name
-                        if test_path.exists():
-                            aae_path = test_path
-            
-            if aae_path.exists():
-                aae_filename = new_filename.rsplit('.', 1)[0] + '.aae'
-                aae_target_path = target_dir / aae_filename
-                
-                if not self.is_dry_run:
-                    shutil.copy2(aae_path, aae_target_path)
-                    log_debug(f"Copied AAE: {aae_path.name} -> {aae_target_path}")
-                else:
-                    log_debug(f"Would copy AAE: {aae_path.name} -> {aae_target_path}")
-                
-                self.stats.aae_files_processed += 1
-            
-            self.stats.successful_exports += 1
-            return True
+            # Use FileOrganizer to copy the photo and associated files
+            result = self.file_organizer.copy_photo_with_metadata(metadata, target_dir)
+            if result:
+                self.stats.successful_exports += 1
+            return result
             
         except Exception as e:
             error_msg = f"Error copying {metadata.original_filename}: {e}"
@@ -1848,10 +1450,10 @@ class PhotoExporter:
             return
         
         # Detect and handle duplicates
-        duplicates = self._detect_duplicates(photo_files)
+        duplicates = self.duplicate_handler.detect_duplicates(photo_files)
         if duplicates:
             log_info(f"Duplicate strategy: {self.duplicate_strategy}")
-            duplicate_files_to_process = self._handle_duplicates(duplicates)
+            duplicate_files_to_process = self.duplicate_handler.handle_duplicates(duplicates)
             
             if self.duplicate_strategy == 'skip_duplicates':
                 # Remove all duplicate files from processing
@@ -1868,7 +1470,7 @@ class PhotoExporter:
                 photo_files.extend(duplicate_files_to_process)
                 
                 # Store duplicates for later processing
-                self.duplicates_to_preserve = duplicates
+                self.duplicates_to_preserve = self.duplicate_handler.duplicates_to_preserve
             else:
                 # Remove duplicate files from processing list and add back resolved files
                 all_duplicate_files = []
@@ -1878,6 +1480,9 @@ class PhotoExporter:
                 photo_files.extend(duplicate_files_to_process)
             
             log_info(f"After duplicate handling: {len(photo_files)} files to process")
+            
+            # Update statistics from duplicate handler
+            self._update_duplicate_stats()
         
         # Calculate total size for disk space check (only in dry run)
         if self.is_dry_run:
