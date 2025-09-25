@@ -177,6 +177,8 @@ Nástroj byl testován na:
 - `YYYYMMDD-HHMMSS_dry.log` - Dry-run log
 - `YYYYMMDD-HHMMSS_metadata.json` - Metadata v JSON formátu
 - `YYYYMMDD-HHMMSS_summary.txt` - Shrnutí exportu
+- `YYYYMMDD-HHMMSS_performance_metrics.json` - Metriky výkonu
+- `YYYYMMDD-HHMMSS_performance_analysis.txt` - Analýza výkonu
 
 ## Bezpečnost
 

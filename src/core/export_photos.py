@@ -2063,25 +2063,23 @@ class PhotoExporter:
             log_error(f"Error generating performance report: {e}")
     
     def _save_performance_metrics(self):
-        """Save performance metrics to file"""
+        """Save performance metrics to file with consistent naming convention"""
         try:
-            if self.export_dir and self.export_dir.exists():
-                metrics_file = self.export_dir / "performance_metrics.json"
+            # Always save to target directory (parent folder) with timestamp naming
+            if self.target_dir.exists():
+                timestamp = self.export_timestamp
+                
+                # Save performance metrics with timestamp naming convention
+                metrics_file = self.target_dir / f"{timestamp}_performance_metrics.json"
                 self.performance_monitor.save_metrics_to_file(metrics_file)
                 
-                # Also save analysis report
-                analysis_file = self.export_dir / "performance_analysis.txt"
+                # Save analysis report with timestamp naming convention
+                analysis_file = self.target_dir / f"{timestamp}_performance_analysis.txt"
                 profile = self.performance_analyzer.analyze_performance()
                 self.performance_analyzer.save_analysis_report(profile, analysis_file)
-            else:
-                # Save to target directory if export_dir doesn't exist (dry-run mode)
-                if self.target_dir.exists():
-                    metrics_file = self.target_dir / "performance_metrics.json"
-                    self.performance_monitor.save_metrics_to_file(metrics_file)
-                    
-                    analysis_file = self.target_dir / "performance_analysis.txt"
-                    profile = self.performance_analyzer.analyze_performance()
-                    self.performance_analyzer.save_analysis_report(profile, analysis_file)
+                
+                log_info(f"Performance metrics saved to: {metrics_file}")
+                log_info(f"Performance analysis report saved to: {analysis_file}")
                 
         except Exception as e:
             log_error(f"Error saving performance metrics: {e}")

@@ -78,6 +78,8 @@ apple-photos-management/
 - Structured logging with context
 - Different log levels for different scenarios
 - On-demand error log creation
+- Consistent naming convention for all log files
+- Performance monitoring logs with timestamp naming
 
 ### 4. Error Handling
 - Specific exception types for different error categories
