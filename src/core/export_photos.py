@@ -44,6 +44,7 @@ from src.utils.performance_optimizer import get_performance_optimizer
 from src.utils.performance_analyzer import get_performance_analyzer
 from src.core.duplicate_handler import DuplicateHandler
 from src.core.file_organizer import FileOrganizer
+from src.core.config import get_config
 
 # Custom exceptions for better error handling
 class PhotoProcessingError(Exception):
@@ -157,11 +158,40 @@ class PhotoExporter:
     - Intelligent processing method selection (streaming vs batch)
     """
     
-    # Supported file formats
-    SUPPORTED_IMAGE_FORMATS = {'.heic', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw'}
-    SUPPORTED_VIDEO_FORMATS = {'.mov', '.mp4', '.avi', '.mkv', '.m4v'}
-    SUPPORTED_METADATA_FORMATS = {'.aae'}  # Apple Adjustment Export files
-    SUPPORTED_FORMATS = SUPPORTED_IMAGE_FORMATS | SUPPORTED_VIDEO_FORMATS | SUPPORTED_METADATA_FORMATS
+    # Configuration will be loaded from centralized config
+    _config = None
+    
+    @property
+    def config(self):
+        """Get the centralized configuration."""
+        if self._config is None:
+            self._config = get_config()
+        return self._config
+    
+    @property
+    def supported_image_formats(self):
+        """Get supported image formats from configuration."""
+        return self.config.file_formats.IMAGE_FORMATS
+    
+    @property
+    def supported_video_formats(self):
+        """Get supported video formats from configuration."""
+        return self.config.file_formats.VIDEO_FORMATS
+    
+    @property
+    def supported_metadata_formats(self):
+        """Get supported metadata formats from configuration."""
+        return self.config.file_formats.METADATA_FORMATS
+    
+    @property
+    def supported_sidecar_formats(self):
+        """Get supported sidecar formats from configuration."""
+        return self.config.file_formats.SIDECAR_FORMATS
+    
+    @property
+    def supported_formats(self):
+        """Get all supported formats from configuration."""
+        return self.config.file_formats.ALL_SUPPORTED_FORMATS
     
     def __init__(self, source_dir: str, target_dir: str, is_dry_run: bool = True, 
                  duplicate_strategy: str = 'keep_first', max_workers: Optional[int] = None):
@@ -193,11 +223,17 @@ class PhotoExporter:
         
         # I/O optimization
         self.file_cache = {}  # Simple file info cache
-        self.batch_size = min(100, max(10, len(list(self.source_dir.rglob("*"))) // 10))  # Dynamic batch size
+        self.batch_size = min(
+            self.config.processing.DEFAULT_BATCH_SIZE, 
+            max(
+                self.config.processing.MIN_BATCH_SIZE, 
+                len(list(self.source_dir.rglob("*"))) // 10
+            )
+        )
         
         # Memory optimization
         self.memory_optimization_enabled = True
-        self.max_cache_size = 10000  # Limit cache size to prevent memory issues
+        self.max_cache_size = self.config.processing.DEFAULT_CACHE_SIZE
         
         # Statistics
         self.stats = ExportStats()
@@ -225,7 +261,7 @@ class PhotoExporter:
 
     def _create_export_directory(self) -> Path:
         """Create timestamped export directory"""
-        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        timestamp = datetime.now().strftime(self.config.date_formats.FILENAME_TIMESTAMP)
         export_dir_name = timestamp  # Simplified: just the timestamp
         export_path = self.target_dir / export_dir_name
         
@@ -305,7 +341,7 @@ class PhotoExporter:
 
     def _is_supported_format(self, file_path: Path) -> bool:
         """Check if file format is supported"""
-        return self._get_file_extension(file_path) in self.SUPPORTED_FORMATS
+        return self._get_file_extension(file_path) in self.supported_formats
     
     def _process_files_in_batches(self, files: List[Path], processor_func, progress_callback=None) -> List[Any]:
         """
@@ -465,8 +501,12 @@ class PhotoExporter:
             # Adjust based on available memory (1 worker per 2GB of memory)
             memory_workers = int(memory_gb / 2)
             
-            # Use the smaller of the two, but ensure minimum of 2 and maximum of 16
-            optimal_workers = min(max(base_workers, memory_workers), 16, max(2, cpu_count))
+            # Use the smaller of the two, but ensure within configuration limits
+            optimal_workers = min(
+                max(base_workers, memory_workers), 
+                self.config.processing.MAX_WORKERS, 
+                max(self.config.processing.MIN_WORKERS, cpu_count)
+            )
             
             log_debug(f"Calculated optimal workers: {optimal_workers} (CPU: {cpu_count}, Memory: {memory_gb:.1f}GB)")
             return optimal_workers
@@ -613,8 +653,8 @@ class PhotoExporter:
             statvfs = os.statvfs(target_path)
             available_bytes = statvfs.f_frsize * statvfs.f_bavail
             
-            # Add 10% buffer for safety
-            required_with_buffer = int(required_size_bytes * 1.1)
+            # Add buffer for safety (from configuration)
+            required_with_buffer = int(required_size_bytes * self.config.system.DISK_SPACE_BUFFER)
             
             has_enough_space = available_bytes >= required_with_buffer
             
@@ -756,7 +796,7 @@ class PhotoExporter:
             # Count all supported files as photos (including videos)
             self.stats.photos_processed += 1
             
-            if photo_path.suffix.lower() in self.SUPPORTED_IMAGE_FORMATS:
+            if photo_path.suffix.lower() in self.supported_image_formats:
                 exif_date = self._extract_exif_date(photo_path)
             
             if xmp_path:
@@ -808,11 +848,11 @@ class PhotoExporter:
 
     def _get_file_type_category(self, extension: str) -> str:
         """Get file type category for duplicate detection"""
-        if extension in self.SUPPORTED_IMAGE_FORMATS:
+        if extension in self.supported_image_formats:
             return "image"
-        elif extension in self.SUPPORTED_VIDEO_FORMATS:
+        elif extension in self.supported_video_formats:
             return "video"
-        elif extension in self.SUPPORTED_METADATA_FORMATS:
+        elif extension in self.supported_metadata_formats:
             return "metadata"
         else:
             return "other"
@@ -894,7 +934,7 @@ class PhotoExporter:
             exif_date = None
             xmp_date = None
 
-            if photo_path.suffix.lower() in self.SUPPORTED_IMAGE_FORMATS:
+            if photo_path.suffix.lower() in self.supported_image_formats:
                 exif_date = self._extract_exif_date(photo_path)
 
             if xmp_path:
@@ -952,7 +992,7 @@ class PhotoExporter:
         log_info("Processing preserved duplicates...")
         
         # Create duplicates directory with export date
-        export_timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        export_timestamp = datetime.now().strftime(self.config.date_formats.EXPORT_DIR_TIMESTAMP)
         duplicates_dir = self.export_dir / f"duplicates_{export_timestamp}"
         
         if not self.is_dry_run:
@@ -1217,7 +1257,7 @@ class PhotoExporter:
             for file_path in export_dir.rglob("*"):
                 if file_path.is_file() and not file_path.name.startswith('.'):
                     if self._is_supported_format(file_path):
-                        if file_path.suffix.lower() in self.SUPPORTED_IMAGE_FORMATS | self.SUPPORTED_VIDEO_FORMATS:
+                        if file_path.suffix.lower() in self.supported_image_formats | self.supported_video_formats:
                             photo_files.append(file_path)
             if photo_files:
                 export_dir_with_photos = export_dir
@@ -1236,7 +1276,7 @@ class PhotoExporter:
         for file_path in all_files:
             if file_path.is_file() and not file_path.name.startswith('.'):
                 if self._is_supported_format(file_path):
-                    if file_path.suffix.lower() in self.SUPPORTED_IMAGE_FORMATS | self.SUPPORTED_VIDEO_FORMATS:
+                    if file_path.suffix.lower() in self.supported_image_formats | self.supported_video_formats:
                         photo_files.append(file_path)
         
         if not photo_files:
@@ -1278,7 +1318,7 @@ class PhotoExporter:
         for file_path in all_files:
             if file_path.is_file() and not file_path.name.startswith('.'):
                 if self._is_supported_format(file_path):
-                    if file_path.suffix.lower() in self.SUPPORTED_IMAGE_FORMATS | self.SUPPORTED_VIDEO_FORMATS:
+                    if file_path.suffix.lower() in self.supported_image_formats | self.supported_video_formats:
                         photo_files.append(file_path)
         
         if not photo_files:
@@ -1360,7 +1400,7 @@ class PhotoExporter:
         }
         
         # Use timestamped filename in target directory
-        timestamp = getattr(self, 'export_timestamp', datetime.now().strftime('%Y%m%d-%H%M%S'))
+        timestamp = getattr(self, 'export_timestamp', datetime.now().strftime(self.config.date_formats.FILENAME_TIMESTAMP))
         metadata_file = self.target_dir / f'{timestamp}_metadata.json'
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -1409,7 +1449,7 @@ class PhotoExporter:
         pass
         
         # Setup logging with timestamp first
-        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        timestamp = datetime.now().strftime(self.config.date_formats.FILENAME_TIMESTAMP)
         self._setup_export_logging(timestamp)
         
         # Handle !delete! strategy early (before creating export directory)
@@ -1433,7 +1473,7 @@ class PhotoExporter:
             if file_path.is_file() and not file_path.name.startswith('.'):
                 if self._is_supported_format(file_path):
                     # Add photos/videos for processing
-                    if file_path.suffix.lower() in self.SUPPORTED_IMAGE_FORMATS | self.SUPPORTED_VIDEO_FORMATS:
+                    if file_path.suffix.lower() in self.supported_image_formats | self.supported_video_formats:
                         photo_files.append(file_path)
                     # AAE files will be processed alongside their corresponding photos
                     # No need to add them to photo_files as they're handled in _process_photo()

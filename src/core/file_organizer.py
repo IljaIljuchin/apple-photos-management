@@ -20,6 +20,7 @@ sys.path.insert(0, str(project_root))
 from src.logging.logger_config import log_info, log_warning, log_debug, log_error
 from src.security.security_utils import create_safe_path, sanitize_filename, SecurityError
 from src.core.metadata_extractor import PhotoMetadata
+from src.core.config import get_config
 
 
 class FileOrganizer:
@@ -44,6 +45,7 @@ class FileOrganizer:
         self.export_dir = export_dir
         self.is_dry_run = is_dry_run
         self.file_timestamps: dict = defaultdict(int)
+        self.config = get_config()
         
     def generate_filename(self, creation_date: datetime, extension: str) -> str:
         """
@@ -57,7 +59,7 @@ class FileOrganizer:
             Generated filename with timestamp and extension
         """
         # Format: YYYYMMDD-HHMMSS
-        base_timestamp = creation_date.strftime('%Y%m%d-%H%M%S')
+        base_timestamp = creation_date.strftime(self.config.date_formats.FILENAME_TIMESTAMP)
         
         # Add milliseconds if available, otherwise use counter
         if creation_date.microsecond > 0:

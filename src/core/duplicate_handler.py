@@ -17,6 +17,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.logging.logger_config import log_info, log_warning, log_debug, log_error
+from src.core.config import get_config
 
 
 @dataclass
@@ -41,10 +42,6 @@ class DuplicateHandler:
     - !delete!: Delete duplicates from output directory
     """
     
-    # Supported file formats for duplicate detection
-    SUPPORTED_IMAGE_FORMATS = {'.heic', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw'}
-    SUPPORTED_VIDEO_FORMATS = {'.mov', '.mp4', '.avi', '.mkv', '.m4v'}
-    
     def __init__(self, duplicate_strategy: str = 'keep_first'):
         """
         Initialize the duplicate handler.
@@ -54,6 +51,7 @@ class DuplicateHandler:
         """
         self.duplicate_strategy = duplicate_strategy
         self.stats = DuplicateStats()
+        self.config = get_config()
         self.duplicates_to_preserve: Dict[str, List[Path]] = {}
         
     def detect_duplicates(self, photo_files: List[Path]) -> Dict[str, List[Path]]:
@@ -116,9 +114,9 @@ class DuplicateHandler:
         Returns:
             File type category ('image', 'video', or 'other')
         """
-        if extension in self.SUPPORTED_IMAGE_FORMATS:
+        if extension in self.config.file_formats.IMAGE_FORMATS:
             return "image"
-        elif extension in self.SUPPORTED_VIDEO_FORMATS:
+        elif extension in self.config.file_formats.VIDEO_FORMATS:
             return "video"
         else:
             return "other"

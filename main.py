@@ -20,12 +20,15 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from src.core.export_photos import PhotoExporter
+from src.core.config import get_config
 from src.logging.logger_config import setup_logging, log_info, log_error, log_warning
 from src.utils.performance_monitor import get_performance_monitor
 
 
 def create_parser() -> argparse.ArgumentParser:
     """Create command line argument parser."""
+    config = get_config()
+    
     parser = argparse.ArgumentParser(
         description="Apple Photos Management Tool - Export and organize photos from Apple Photos",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -63,37 +66,37 @@ For more information, see README.md or docs/requirements.md
     # Optional arguments
     parser.add_argument(
         '--duplicate-strategy',
-        choices=['keep_first', 'skip_duplicates', 'preserve_duplicates', 'cleanup_duplicates', '!delete!'],
-        default='keep_first',
-        help='Strategy for handling duplicate files (default: keep_first)'
+        choices=list(config.duplicates.AVAILABLE_STRATEGIES),
+        default=config.duplicates.DEFAULT_STRATEGY,
+        help=f'Strategy for handling duplicate files (default: {config.duplicates.DEFAULT_STRATEGY})'
     )
     
     parser.add_argument(
         '--workers',
         type=int,
-        default=8,
-        help='Number of worker threads for parallel processing (default: 8)'
+        default=config.processing.DEFAULT_WORKERS,
+        help=f'Number of worker threads for parallel processing (default: {config.processing.DEFAULT_WORKERS})'
     )
     
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=100,
-        help='Batch size for file processing (default: 100)'
+        default=config.processing.DEFAULT_BATCH_SIZE,
+        help=f'Batch size for file processing (default: {config.processing.DEFAULT_BATCH_SIZE})'
     )
     
     parser.add_argument(
         '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level (default: INFO)'
+        choices=list(config.logging.AVAILABLE_LOG_LEVELS),
+        default=config.logging.DEFAULT_LOG_LEVEL,
+        help=f'Logging level (default: {config.logging.DEFAULT_LOG_LEVEL})'
     )
     
     parser.add_argument(
         '--cache-size',
         type=int,
-        default=10000,
-        help='Maximum cache size for file metadata (default: 10000)'
+        default=config.processing.DEFAULT_CACHE_SIZE,
+        help=f'Maximum cache size for file metadata (default: {config.processing.DEFAULT_CACHE_SIZE})'
     )
     
     parser.add_argument(
@@ -121,6 +124,8 @@ For more information, see README.md or docs/requirements.md
 def validate_arguments(args: argparse.Namespace) -> bool:
     """Validate command line arguments."""
     try:
+        config = get_config()
+        
         # Validate source directory
         if not args.source_dir.exists():
             log_error(f"Source directory does not exist: {args.source_dir}")
@@ -134,17 +139,29 @@ def validate_arguments(args: argparse.Namespace) -> bool:
         if args.target_dir is None:
             args.target_dir = args.source_dir.parent / f"{args.source_dir.name}_export"
         
-        # Validate numeric arguments
-        if args.workers < 1:
-            log_error("Number of workers must be at least 1")
+        # Validate numeric arguments using configuration limits
+        if args.workers < config.processing.MIN_WORKERS:
+            log_error(f"Number of workers must be at least {config.processing.MIN_WORKERS}")
             return False
         
-        if args.batch_size < 1:
-            log_error("Batch size must be at least 1")
+        if args.workers > config.processing.MAX_WORKERS:
+            log_error(f"Number of workers cannot exceed {config.processing.MAX_WORKERS}")
+            return False
+        
+        if args.batch_size < config.processing.MIN_BATCH_SIZE:
+            log_error(f"Batch size must be at least {config.processing.MIN_BATCH_SIZE}")
+            return False
+        
+        if args.batch_size > config.processing.MAX_BATCH_SIZE:
+            log_error(f"Batch size cannot exceed {config.processing.MAX_BATCH_SIZE}")
             return False
         
         if args.cache_size < 1:
             log_error("Cache size must be at least 1")
+            return False
+        
+        if args.cache_size > config.processing.MAX_CACHE_SIZE:
+            log_error(f"Cache size cannot exceed {config.processing.MAX_CACHE_SIZE}")
             return False
         
         return True
